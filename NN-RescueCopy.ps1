@@ -625,9 +625,386 @@ $NNXaml = @'
 '@
 #endregion
 
-#region Entry stub (replaced in Task 10)
+#region Background
+function Start-NNBackground {
+    param([string]$FunctionName, [object[]]$Arguments)
+    $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    foreach ($fn in @(Get-ChildItem function: | Where-Object { $_.Name -like '*-NN*' })) {
+        $iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry ($fn.Name, $fn.Definition)))
+    }
+    foreach ($vn in @('NNIsWindows','NNOsExcludeRoot','NNProfileExclude','NNVisibleFolders','NNAppDataDefs',
+                      'NNGenericRead','NNShareAll','NNOpenExisting','NNRawFlags','NNCloudOnlyAttrs')) {
+        $v = Get-Variable -Name $vn -ErrorAction SilentlyContinue
+        if ($v) {
+            $iss.Variables.Add((New-Object System.Management.Automation.Runspaces.SessionStateVariableEntry ($vn, $v.Value, $null)))
+        }
+    }
+    $ps = [powershell]::Create($iss)
+    $null = $ps.AddCommand($FunctionName)
+    foreach ($a in $Arguments) { $null = $ps.AddArgument($a) }
+    return @{ PS = $ps; Handle = $ps.BeginInvoke() }
+}
+
+function Get-NNVolumes {
+    $out = @()
+    foreach ($d in [IO.DriveInfo]::GetDrives()) {
+        if (-not $d.IsReady) { continue }
+        $root = $d.RootDirectory.FullName
+        $badge = @()
+        if (Test-Path -LiteralPath (Join-Path $root 'Windows')) { $badge += 'Windows' }
+        if (Test-Path -LiteralPath (Join-Path $root 'Users'))   { $badge += 'Users' }
+        $out += [pscustomobject]@{
+            Drive     = $d.Name.TrimEnd('\', '/')
+            Label     = $d.VolumeLabel
+            Size      = Format-NNBytes $d.TotalSize
+            Free      = Format-NNBytes $d.AvailableFreeSpace
+            FreeBytes = [long]$d.AvailableFreeSpace
+            Contents  = ($badge -join ', ')
+            Root      = $root
+        }
+    }
+    return $out
+}
+#endregion
+
+#region GUI
+# All GUI helpers are top-level functions operating on $script:NNCtx - WPF event
+# handler scriptblocks execute against the session scope chain and would NOT see
+# functions nested inside Start-NNRescueGui.
+
+function Show-NNStep {
+    param([int]$n)
+    $script:NNCtx.Step = $n
+    $ui = $script:NNCtx.UI
+    for ($i = 1; $i -le 5; $i++) {
+        $ui["PanelStep$i"].Visibility = 'Collapsed'
+        $ui["RailStep$i"].Foreground = '#94A3B8'
+        $ui["RailStep$i"].FontWeight = 'Normal'
+    }
+    $ui["PanelStep$n"].Visibility = 'Visible'
+    $ui["RailStep$n"].Foreground = '#38BDF8'
+    $ui["RailStep$n"].FontWeight = 'Bold'
+    $ui.BtnBack.Visibility = 'Hidden'
+    if ($n -eq 2 -or $n -eq 3) { $ui.BtnBack.Visibility = 'Visible' }
+    $ui.BtnNext.Visibility = 'Visible'
+    if ($n -eq 1 -or $n -eq 2) { $ui.BtnNext.Content = 'Next' }
+    if ($n -eq 3) { $ui.BtnNext.Content = 'Start Copy' }
+    if ($n -ge 4) { $ui.BtnNext.Visibility = 'Hidden' }
+}
+
+function Update-NNVolumeLists {
+    $vols = @(Get-NNVolumes)
+    $script:NNCtx.UI.LvSource.ItemsSource = $vols
+    $script:NNCtx.UI.LvDest.ItemsSource = $vols
+}
+
+function Update-NNTotals {
+    $c = $script:NNCtx
+    if (-not $c.Model) { return }
+    $sel = Get-NNSelectedBytes $c.Model
+    $c.UI.TxtTotals.Text = ('Selected: {0}   Destination free: {1}' -f (Format-NNBytes $sel), (Format-NNBytes $c.DestFreeBytes))
+    if ($sel -gt $c.DestFreeBytes) { $c.UI.TxtTotals.Foreground = '#F87171' }
+    else { $c.UI.TxtTotals.Foreground = '#4ADE80' }
+}
+
+function Add-NNTreeGroup {
+    param($Group)
+    $c = $script:NNCtx
+    $node = New-Object System.Windows.Controls.TreeViewItem
+    $node.IsExpanded = $true
+    $head = New-Object System.Windows.Controls.CheckBox
+    $head.Content = $Group.Header
+    $head.FontWeight = 'Bold'
+    $head.Foreground = '#38BDF8'
+    $node.Header = $head
+    $childBoxes = New-Object System.Collections.Generic.List[object]
+    foreach ($item in $Group.Items) {
+        $cb = New-Object System.Windows.Controls.CheckBox
+        $sz = ''
+        if ($null -ne $item.SizeBytes) { $sz = '  (' + (Format-NNBytes $item.SizeBytes) + ')' }
+        $cb.Content = $item.Label + $sz
+        $cb.IsChecked = $item.Selected
+        $cb.Tag = $item
+        $cb.Add_Checked({ param($s, $e) $s.Tag.Selected = $true;  Update-NNTotals })
+        $cb.Add_Unchecked({ param($s, $e) $s.Tag.Selected = $false; Update-NNTotals })
+        $leaf = New-Object System.Windows.Controls.TreeViewItem
+        $leaf.Header = $cb
+        $null = $node.Items.Add($leaf)
+        $childBoxes.Add($cb)
+    }
+    $head.Tag = $childBoxes
+    $allOn = $true
+    foreach ($b in $childBoxes) { if (-not $b.IsChecked) { $allOn = $false } }
+    $head.IsChecked = $allOn
+    $head.Add_Checked({ param($s, $e) foreach ($b in $s.Tag) { $b.IsChecked = $true } })
+    $head.Add_Unchecked({ param($s, $e) foreach ($b in $s.Tag) { $b.IsChecked = $false } })
+    $null = $c.UI.TreeSel.Items.Add($node)
+}
+
+function Start-NNScan {
+    $c = $script:NNCtx
+    if ($c.ScanJob) { try { $c.ScanJob.PS.Stop(); $c.ScanJob.PS.Dispose() } catch { } }
+    $c.UI.TreeSel.Items.Clear()
+    $c.Model = New-Object System.Collections.Generic.List[object]
+    $c.UI.TxtScanStatus.Text = 'Scanning...'
+    $c.ScanJob = Start-NNBackground 'Invoke-NNScanJob' @($c.SourceRoot, [bool]$c.UI.ChkAppData.IsChecked, $c.Queue)
+}
+
+function Read-NNQueue {
+    $c = $script:NNCtx
+    $m = $null
+    while ($c.Queue.TryDequeue([ref]$m)) {
+        if ($m.Type -eq 'scangroup') {
+            $c.Model.Add($m.Group)
+            Add-NNTreeGroup $m.Group
+            Update-NNTotals
+        }
+        elseif ($m.Type -eq 'scandone') {
+            $c.UI.TxtScanStatus.Text = 'Scan complete.'
+        }
+        elseif ($m.Type -eq 'plan') {
+            $c.PlanBytes = [long]$m.Bytes; $c.PlanCount = [int]$m.Count
+            $c.UI.PbOverall.Maximum = [double]([math]::Max(1, $m.Bytes / 1MB))
+            $c.UI.TxtPhase.Text = ('Copying {0} files ({1})...' -f $m.Count, (Format-NNBytes $m.Bytes))
+        }
+        elseif ($m.Type -eq 'file') {
+            $c.BytesDone = [long]$m.BytesDone
+            $c.UI.PbOverall.Value = [double]($m.BytesDone / 1MB)
+            $c.UI.TxtCurrentFile.Text = $m.Path
+            if ($c.Tally.ContainsKey($m.Result)) { $c.Tally[$m.Result]++ } else { $c.Tally[$m.Result] = 1 }
+            $parts = @()
+            foreach ($k in ($c.Tally.Keys | Sort-Object)) { $parts += ('{0}: {1}' -f $k, $c.Tally[$k]) }
+            $c.UI.TxtCounters.Text = ($parts -join '    ')
+            if ($m.Result -ne 'OK' -and $m.Result -ne 'SKIP-EXISTS') {
+                $null = $c.UI.LbProblems.Items.Add(('{0}  {1}' -f $m.Result, $m.Path))
+            }
+        }
+        elseif ($m.Type -eq 'done') {
+            $c.Summary = $m.Summary; $c.Pairs = $m.Pairs
+            foreach ($p in $m.Problems) { $c.Problems.Add($p) }
+            if ($c.UI.ChkVerify.IsChecked -and @($m.Pairs).Count -gt 0 -and -not $m.Cancelled) {
+                $c.UI.TxtPhase.Text = ('Verifying {0} copied files (SHA-256)...' -f @($m.Pairs).Count)
+                $c.UI.PbOverall.Value = 0
+                $c.UI.PbOverall.Maximum = [double]@($m.Pairs).Count
+                $c.VerifyJob = Start-NNBackground 'Invoke-NNVerifyPass' @($m.Pairs, $c.Control, $c.Queue)
+            } else {
+                Complete-NNJob
+            }
+        }
+        elseif ($m.Type -eq 'verify') {
+            $c.UI.PbOverall.Value = [double]$m.Index
+            $c.UI.TxtCurrentFile.Text = ('Verified {0} / {1}' -f $m.Index, $m.Total)
+        }
+        elseif ($m.Type -eq 'verifydone') {
+            foreach ($mm in $m.Mismatches) { $c.Problems.Add($mm) }
+            if (@($m.Mismatches).Count -gt 0) { $c.Summary['HASH-MISMATCH'] = @($m.Mismatches).Count }
+            Complete-NNJob
+        }
+    }
+}
+
+function Complete-NNJob {
+    $c = $script:NNCtx
+    $c.ReportPath = Join-Path $c.JobRoot '_RescueReport.html'
+    $null = New-NNHtmlReport -Summary $c.Summary -Problems $c.Problems -JobName $c.JobName -Bytes $c.BytesDone -OutPath $c.ReportPath
+    $lines = @()
+    foreach ($k in ($c.Summary.Keys | Sort-Object)) { $lines += ('{0,-22} {1}' -f $k, $c.Summary[$k]) }
+    $c.UI.TxtSummary.Text = ($lines -join [Environment]::NewLine)
+    $cloud = 0
+    if ($c.Summary.ContainsKey('CLOUD-ONLY')) { $cloud = $c.Summary['CLOUD-ONLY'] }
+    if ($cloud -gt 0) {
+        $c.UI.TxtCloudNote.Text = ('{0} file(s) live only in the customer''s cloud account (OneDrive/Dropbox). ' +
+            'Sign into the account on a working machine to download them.') -f $cloud
+    } else {
+        $c.UI.TxtCloudNote.Text = ''
+    }
+    $c.UI.LbFinalProblems.Items.Clear()
+    foreach ($p in $c.Problems) { $null = $c.UI.LbFinalProblems.Items.Add($p) }
+    Show-NNStep 5
+}
+
+function Start-NNRescueGui {
+    $win = [Windows.Markup.XamlReader]::Parse($NNXaml)
+    $ui = @{}
+    foreach ($n in @('RailStep1','RailStep2','RailStep3','RailStep4','RailStep5',
+                     'PanelStep1','PanelStep2','PanelStep3','PanelStep4','PanelStep5',
+                     'LvSource','LvDest','BtnBrowseSource','BtnRescan','TxtSrcPick',
+                     'TxtJobName','TxtDestPreview','TxtJobHint',
+                     'ChkAppData','ChkVerify','ChkForce','TreeSel','TxtTotals','TxtScanStatus',
+                     'PbOverall','TxtPhase','TxtCurrentFile','TxtCounters','LbProblems','BtnPause','BtnCancelCopy',
+                     'TxtSummary','TxtCloudNote','LbFinalProblems','BtnOpenDest','BtnOpenReport',
+                     'BtnBack','BtnNext')) {
+        $ui[$n] = $win.FindName($n)
+    }
+
+    $script:NNCtx = @{
+        Win = $win; UI = $ui; Step = 1
+        SourceRoot = $null; BackupRoot = $null; DestFreeBytes = [long]0
+        JobRoot = $null; JobName = ''
+        Model = $null; ScanJob = $null; CopyJob = $null; VerifyJob = $null
+        Control = [hashtable]::Synchronized(@{ Cancel = $false; Pause = $false })
+        Queue = (New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]')
+        Tally = @{}; Problems = (New-Object System.Collections.Generic.List[string])
+        Summary = $null; Pairs = $null; PlanBytes = [long]0; PlanCount = 0
+        ReportPath = $null; BytesDone = [long]0
+    }
+
+    # --- events ---
+    $ui.BtnRescan.Add_Click({ Update-NNVolumeLists })
+
+    $ui.BtnBrowseSource.Add_Click({
+        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dlg.Description = 'Pick the customer data root (e.g. a mounted image)'
+        if ($dlg.ShowDialog() -eq 'OK') {
+            $script:NNCtx.SourceRoot = $dlg.SelectedPath
+            $script:NNCtx.UI.TxtSrcPick.Text = 'Source: ' + $dlg.SelectedPath
+            $script:NNCtx.UI.LvSource.SelectedItem = $null
+        }
+    })
+
+    $ui.LvSource.Add_SelectionChanged({
+        if ($script:NNCtx.UI.LvSource.SelectedItem) {
+            $script:NNCtx.SourceRoot = $script:NNCtx.UI.LvSource.SelectedItem.Root
+            $script:NNCtx.UI.TxtSrcPick.Text = 'Source: ' + $script:NNCtx.SourceRoot
+        }
+    })
+
+    $ui.TxtJobName.Add_TextChanged({
+        $c = $script:NNCtx
+        if ($c.BackupRoot) {
+            $c.UI.TxtDestPreview.Text = Get-NNJobRoot $c.BackupRoot $c.UI.TxtJobName.Text
+        }
+    })
+
+    $ui.ChkAppData.Add_Click({ if ($script:NNCtx.Step -eq 3) { Start-NNScan } })
+
+    $ui.BtnBack.Add_Click({
+        $c = $script:NNCtx
+        if ($c.Step -eq 3 -and $c.ScanJob) { try { $c.ScanJob.PS.Stop() } catch { } }
+        if ($c.Step -gt 1) { Show-NNStep ($c.Step - 1) }
+    })
+
+    $ui.BtnNext.Add_Click({
+        $c = $script:NNCtx
+        if ($c.Step -eq 1) {
+            if (-not $c.SourceRoot) {
+                [System.Windows.MessageBox]::Show('Pick the customer (source) drive first.', 'NN Rescue Copy') | Out-Null; return
+            }
+            if (-not $c.UI.LvDest.SelectedItem) {
+                [System.Windows.MessageBox]::Show('Pick the backup (destination) drive.', 'NN Rescue Copy') | Out-Null; return
+            }
+            $c.BackupRoot = $c.UI.LvDest.SelectedItem.Root
+            $c.DestFreeBytes = [long]$c.UI.LvDest.SelectedItem.FreeBytes
+            if ($c.BackupRoot -eq $c.SourceRoot) {
+                [System.Windows.MessageBox]::Show('Source and destination must differ.', 'NN Rescue Copy') | Out-Null; return
+            }
+            if (-not $c.UI.TxtJobName.Text) {
+                $hn = Get-NNSourceHostname $c.SourceRoot
+                if ($hn) { $c.UI.TxtJobName.Text = $hn }
+                else { $c.UI.TxtJobHint.Text = 'Could not read the drive''s registry - enter a name manually.' }
+            }
+            Show-NNStep 2
+        }
+        elseif ($c.Step -eq 2) {
+            $name = Get-NNSafeName $c.UI.TxtJobName.Text
+            if (-not $name) {
+                [System.Windows.MessageBox]::Show('Enter a customer/job name.', 'NN Rescue Copy') | Out-Null; return
+            }
+            $c.JobName = $name
+            $c.JobRoot = Get-NNJobRoot $c.BackupRoot $name
+            Show-NNStep 3
+            Start-NNScan
+        }
+        elseif ($c.Step -eq 3) {
+            $targets = @()
+            foreach ($g in $c.Model) { foreach ($i in $g.Items) { if ($i.Selected) { $targets += $i } } }
+            if ($targets.Count -eq 0) {
+                [System.Windows.MessageBox]::Show('Nothing selected.', 'NN Rescue Copy') | Out-Null; return
+            }
+            $sel = Get-NNSelectedBytes $c.Model
+            if ($sel -gt $c.DestFreeBytes) {
+                $r = [System.Windows.MessageBox]::Show(
+                    ('Selection ({0}) exceeds destination free space ({1}). Continue anyway?' -f (Format-NNBytes $sel), (Format-NNBytes $c.DestFreeBytes)),
+                    'NN Rescue Copy', 'YesNo', 'Warning')
+                if ($r -ne 'Yes') { return }
+            }
+            $c.Control.Cancel = $false; $c.Control.Pause = $false
+            $c.Tally = @{}; $c.Problems.Clear(); $c.UI.LbProblems.Items.Clear()
+            Show-NNStep 4
+            $c.CopyJob = Start-NNBackground 'Invoke-NNCopyJob' @($targets, $c.JobRoot, $c.Control, $c.Queue, [bool]$c.UI.ChkForce.IsChecked)
+        }
+    })
+
+    $ui.BtnPause.Add_Click({
+        $c = $script:NNCtx
+        $c.Control.Pause = -not $c.Control.Pause
+        if ($c.Control.Pause) { $c.UI.BtnPause.Content = 'Resume'; $c.UI.TxtPhase.Text = 'Paused.' }
+        else { $c.UI.BtnPause.Content = 'Pause'; $c.UI.TxtPhase.Text = 'Copying...' }
+    })
+
+    $ui.BtnCancelCopy.Add_Click({ $script:NNCtx.Control.Cancel = $true })
+
+    $ui.BtnOpenDest.Add_Click({ Start-Process explorer.exe $script:NNCtx.JobRoot })
+    $ui.BtnOpenReport.Add_Click({ if ($script:NNCtx.ReportPath) { Start-Process $script:NNCtx.ReportPath } })
+
+    # UI pump
+    $timer = New-Object System.Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromMilliseconds(250)
+    $timer.Add_Tick({ Read-NNQueue })
+    $timer.Start()
+
+    Update-NNVolumeLists
+    Show-NNStep 1
+    $null = $win.ShowDialog()
+    $timer.Stop()
+    foreach ($j in @($script:NNCtx.ScanJob, $script:NNCtx.CopyJob, $script:NNCtx.VerifyJob)) {
+        if ($j) { try { $j.PS.Stop(); $j.PS.Dispose() } catch { } }
+    }
+}
+
+function Invoke-NNScanJob {
+    param([string]$SourceRoot, [bool]$IncludeAppData, $Queue)
+    $model = Build-NNSelectionModel $SourceRoot $IncludeAppData
+    foreach ($g in $model) {
+        foreach ($i in $g.Items) { $i.SizeBytes = Get-NNFolderSize $i.SourcePath }
+        $Queue.Enqueue(@{ Type = 'scangroup'; Group = $g })
+    }
+    $Queue.Enqueue(@{ Type = 'scandone' })
+}
+#endregion
+
+#region Entry
 function Start-NNRescue {
-    Write-Host 'NN Rescue Copy: GUI not implemented yet.' -ForegroundColor Yellow
+    if (-not $NNIsWindows) {
+        Write-Host 'NN Rescue Copy needs full Windows (it is a WPF app). On Linux, mount with ntfs-3g and copy normally.' -ForegroundColor Red
+        return
+    }
+    try {
+        Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms -ErrorAction Stop
+    } catch {
+        Write-Host 'This Windows has no GUI stack (WinPE / Server Core). Slave the drive into a full Windows machine or VM.' -ForegroundColor Red
+        return
+    }
+    if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA) {
+        $tmp = Join-Path $env:TEMP 'NN-RescueCopy.ps1'
+        $saved = $false
+        if ($NNScriptPath -and (Test-Path -LiteralPath $NNScriptPath)) {
+            Copy-Item -Force -LiteralPath $NNScriptPath -Destination $tmp
+            $saved = $true
+        } else {
+            try { Invoke-RestMethod 'https://copy.nerdyneighbor.net' -OutFile $tmp; $saved = $true } catch { }
+        }
+        if ($saved) {
+            $exe = 'powershell.exe'
+            if ($PSVersionTable.PSEdition -eq 'Core') { $exe = 'pwsh.exe' }
+            Write-Host 'Relaunching in STA mode for the GUI...' -ForegroundColor Cyan
+            Start-Process $exe -ArgumentList '-Sta', '-ExecutionPolicy', 'Bypass', '-File', $tmp
+        } else {
+            Write-Host 'Not in STA mode and could not self-relaunch. Download the script and run: powershell -Sta -File NN-RescueCopy.ps1' -ForegroundColor Red
+        }
+        return
+    }
+    Start-NNRescueGui
 }
 #endregion
 
