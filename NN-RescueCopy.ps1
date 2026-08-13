@@ -440,6 +440,191 @@ $probHtml
 }
 #endregion
 
+#region Selection model
+function Build-NNSelectionModel {
+    param([string]$SourceRoot, [bool]$IncludeAppData)
+    $groups = @()
+    foreach ($pd in @(Get-NNUserProfileDirs $SourceRoot)) {
+        $items = @(Get-NNProfileTargets $pd)
+        if ($IncludeAppData) { $items += @(Get-NNAppDataTargets $pd) }
+        if ($items.Count -gt 0) { $groups += @{ Header = "User: $($pd.Name)"; Items = $items } }
+    }
+    $extras = @(Get-NNExtraTargets $SourceRoot)
+    if ($extras.Count -gt 0) { $groups += @{ Header = 'Extras found on drive'; Items = $extras } }
+    return ,$groups
+}
+
+function Get-NNSelectedBytes {
+    param($Model)
+    $s = [long]0
+    foreach ($g in $Model) {
+        foreach ($i in $g.Items) {
+            if ($i.Selected -and $null -ne $i.SizeBytes) { $s += [long]$i.SizeBytes }
+        }
+    }
+    return $s
+}
+#endregion
+
+#region XAML
+$NNXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="NN Rescue Copy" Height="700" Width="1040" WindowStartupLocation="CenterScreen"
+        Background="#0F172A" Foreground="#E2E8F0" FontFamily="Segoe UI" FontSize="13">
+  <Window.Resources>
+    <Style TargetType="Button">
+      <Setter Property="Background" Value="#1E3A5F"/>
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="BorderBrush" Value="#334155"/>
+      <Setter Property="Padding" Value="16,8"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Cursor" Value="Hand"/>
+    </Style>
+    <Style TargetType="ListView">
+      <Setter Property="Background" Value="#1E293B"/>
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="BorderBrush" Value="#334155"/>
+    </Style>
+    <Style TargetType="ListBox">
+      <Setter Property="Background" Value="#1E293B"/>
+      <Setter Property="Foreground" Value="#F87171"/>
+      <Setter Property="BorderBrush" Value="#334155"/>
+    </Style>
+    <Style TargetType="TreeView">
+      <Setter Property="Background" Value="#1E293B"/>
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="BorderBrush" Value="#334155"/>
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Background" Value="#1E293B"/>
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="BorderBrush" Value="#334155"/>
+      <Setter Property="Padding" Value="8,6"/>
+      <Setter Property="FontSize" Value="15"/>
+    </Style>
+    <Style TargetType="CheckBox">
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="Margin" Value="0,4"/>
+    </Style>
+    <Style TargetType="GridViewColumnHeader">
+      <Setter Property="Background" Value="#334155"/>
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="Padding" Value="8,4"/>
+    </Style>
+  </Window.Resources>
+  <DockPanel>
+    <!-- Left step rail -->
+    <StackPanel DockPanel.Dock="Left" Width="190" Background="#1E293B">
+      <TextBlock Text="NN Rescue Copy" FontSize="17" FontWeight="Bold" Foreground="#38BDF8" Margin="18,20,10,4"/>
+      <TextBlock Text="Nerdy Neighbor" Foreground="#94A3B8" Margin="18,0,10,24"/>
+      <TextBlock x:Name="RailStep1" Text="1  Drives"      Margin="18,6" FontWeight="Bold" Foreground="#38BDF8"/>
+      <TextBlock x:Name="RailStep2" Text="2  Job name"    Margin="18,6" Foreground="#94A3B8"/>
+      <TextBlock x:Name="RailStep3" Text="3  Selection"   Margin="18,6" Foreground="#94A3B8"/>
+      <TextBlock x:Name="RailStep4" Text="4  Copy"        Margin="18,6" Foreground="#94A3B8"/>
+      <TextBlock x:Name="RailStep5" Text="5  Done"        Margin="18,6" Foreground="#94A3B8"/>
+    </StackPanel>
+    <!-- Bottom nav -->
+    <Border DockPanel.Dock="Bottom" Background="#1E293B" Padding="16,10">
+      <DockPanel>
+        <Button x:Name="BtnBack" Content="Back" DockPanel.Dock="Left" Width="110" Visibility="Hidden"/>
+        <Button x:Name="BtnNext" Content="Next" DockPanel.Dock="Right" Width="150" HorizontalAlignment="Right" Background="#0369A1"/>
+        <TextBlock/>
+      </DockPanel>
+    </Border>
+    <!-- Content -->
+    <Grid Margin="20">
+      <!-- Step 1: Drives -->
+      <Grid x:Name="PanelStep1">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="Customer drive (source) - read-only" FontSize="15" FontWeight="Bold" Margin="0,0,0,6"/>
+        <ListView Grid.Row="1" x:Name="LvSource">
+          <ListView.View><GridView>
+            <GridViewColumn Header="Drive" Width="70" DisplayMemberBinding="{Binding Drive}"/>
+            <GridViewColumn Header="Label" Width="180" DisplayMemberBinding="{Binding Label}"/>
+            <GridViewColumn Header="Size" Width="100" DisplayMemberBinding="{Binding Size}"/>
+            <GridViewColumn Header="Free" Width="100" DisplayMemberBinding="{Binding Free}"/>
+            <GridViewColumn Header="Contents" Width="220" DisplayMemberBinding="{Binding Contents}"/>
+          </GridView></ListView.View>
+        </ListView>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8">
+          <TextBlock Text="Backup drive (destination)" FontSize="15" FontWeight="Bold" VerticalAlignment="Center"/>
+          <Button x:Name="BtnBrowseSource" Content="Browse folder as source..." Margin="20,0,8,0" Padding="10,4"/>
+          <Button x:Name="BtnRescan" Content="Rescan drives" Padding="10,4"/>
+          <TextBlock x:Name="TxtSrcPick" Foreground="#4ADE80" Margin="14,0,0,0" VerticalAlignment="Center"/>
+        </StackPanel>
+        <ListView Grid.Row="3" x:Name="LvDest">
+          <ListView.View><GridView>
+            <GridViewColumn Header="Drive" Width="70" DisplayMemberBinding="{Binding Drive}"/>
+            <GridViewColumn Header="Label" Width="180" DisplayMemberBinding="{Binding Label}"/>
+            <GridViewColumn Header="Size" Width="100" DisplayMemberBinding="{Binding Size}"/>
+            <GridViewColumn Header="Free" Width="100" DisplayMemberBinding="{Binding Free}"/>
+            <GridViewColumn Header="Contents" Width="220" DisplayMemberBinding="{Binding Contents}"/>
+          </GridView></ListView.View>
+        </ListView>
+        <TextBlock Grid.Row="4" Foreground="#94A3B8" Margin="0,8,0,0"
+                   Text="The source drive is only ever read. Pick the slaved customer drive on top, your rescue disk below."/>
+      </Grid>
+      <!-- Step 2: Job name -->
+      <StackPanel x:Name="PanelStep2" Visibility="Collapsed" MaxWidth="560" VerticalAlignment="Center">
+        <TextBlock Text="Customer / job name" FontSize="15" FontWeight="Bold" Margin="0,0,0,6"/>
+        <TextBox x:Name="TxtJobName"/>
+        <TextBlock x:Name="TxtJobHint" Foreground="#94A3B8" Margin="0,6,0,0" Text="Prefilled from the customer drive's registry when readable."/>
+        <TextBlock Text="Backup will be written to:" Foreground="#94A3B8" Margin="0,22,0,2"/>
+        <TextBlock x:Name="TxtDestPreview" Foreground="#4ADE80" FontFamily="Consolas" TextWrapping="Wrap"/>
+        <TextBlock Foreground="#94A3B8" Margin="0,14,0,0" TextWrapping="Wrap"
+                   Text="Re-using an existing job name resumes it: files already copied with matching sizes are skipped."/>
+      </StackPanel>
+      <!-- Step 3: Selection -->
+      <Grid x:Name="PanelStep3" Visibility="Collapsed">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+          <CheckBox x:Name="ChkAppData" Content="Include key AppData (browsers, Outlook PST/OST, Sticky Notes, Windows Mail)"/>
+          <CheckBox x:Name="ChkVerify" Content="Verify after copy (SHA-256)" Margin="24,4,0,4"/>
+          <CheckBox x:Name="ChkForce" Content="Re-copy everything (ignore resume)" Margin="24,4,0,4"/>
+        </StackPanel>
+        <TreeView Grid.Row="1" x:Name="TreeSel"/>
+        <DockPanel Grid.Row="2" Margin="0,8,0,0">
+          <TextBlock x:Name="TxtScanStatus" Foreground="#94A3B8" DockPanel.Dock="Left" Text="Scanning..."/>
+          <TextBlock x:Name="TxtTotals" DockPanel.Dock="Right" HorizontalAlignment="Right" FontWeight="Bold"/>
+        </DockPanel>
+      </Grid>
+      <!-- Step 4: Copy -->
+      <Grid x:Name="PanelStep4" Visibility="Collapsed">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" x:Name="TxtPhase" Text="Copying..." FontSize="15" FontWeight="Bold" Margin="0,0,0,8"/>
+        <ProgressBar Grid.Row="1" x:Name="PbOverall" Height="22" Background="#1E293B" Foreground="#38BDF8"/>
+        <TextBlock Grid.Row="2" x:Name="TxtCurrentFile" Foreground="#94A3B8" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"/>
+        <TextBlock Grid.Row="3" x:Name="TxtCounters" Margin="0,8,0,8" FontFamily="Consolas"/>
+        <ListBox Grid.Row="4" x:Name="LbProblems" FontFamily="Consolas" FontSize="12"/>
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+          <Button x:Name="BtnPause" Content="Pause" Width="110" Margin="0,0,10,0"/>
+          <Button x:Name="BtnCancelCopy" Content="Cancel" Width="110" Background="#7F1D1D"/>
+        </StackPanel>
+      </Grid>
+      <!-- Step 5: Done -->
+      <StackPanel x:Name="PanelStep5" Visibility="Collapsed" MaxWidth="640" VerticalAlignment="Center">
+        <TextBlock Text="Rescue complete" FontSize="20" FontWeight="Bold" Foreground="#4ADE80"/>
+        <TextBlock x:Name="TxtSummary" Margin="0,12,0,0" FontFamily="Consolas" TextWrapping="Wrap"/>
+        <TextBlock x:Name="TxtCloudNote" Margin="0,12,0,0" Foreground="#FBBF24" TextWrapping="Wrap"/>
+        <ListBox x:Name="LbFinalProblems" MaxHeight="180" Margin="0,12,0,0" FontFamily="Consolas" FontSize="12"/>
+        <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+          <Button x:Name="BtnOpenDest" Content="Open backup folder" Margin="0,0,12,0"/>
+          <Button x:Name="BtnOpenReport" Content="Open report"/>
+        </StackPanel>
+      </StackPanel>
+    </Grid>
+  </DockPanel>
+</Window>
+'@
+#endregion
+
 #region Entry stub (replaced in Task 10)
 function Start-NNRescue {
     Write-Host 'NN Rescue Copy: GUI not implemented yet.' -ForegroundColor Yellow
