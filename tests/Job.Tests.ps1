@@ -57,4 +57,33 @@ Describe 'Invoke-NNCopyJob' {
         ($msgs | Where-Object Type -eq 'done').Cancelled | Should -BeTrue
         ($msgs | Where-Object Type -eq 'file').Count | Should -Be 0
     }
+    It 'quotes the Result field in the CSV log so embedded commas do not break rows' {
+        $csv = Get-Content (Join-Path $script:JobRoot '_RescueLog.csv')
+        foreach ($line in $csv[1..($csv.Count - 1)]) { $line | Should -Match '^\S+,"[^"]*",\d+,' }
+    }
+}
+
+Describe 'Invoke-NNCopyJob enumeration errors' {
+    It 'surfaces ENUM-FAIL problems collected from a partially-failing enumeration pass' {
+        $dir = Join-Path ([IO.Path]::GetTempPath()) ("nnenum-" + [guid]::NewGuid().ToString('N'))
+        $src = Join-Path $dir 'src'
+        $null = New-Item -ItemType Directory -Force -Path $src
+        Set-Content -Path (Join-Path $src 'ok.txt') -Value 'fine'
+        $t = New-NNTarget 'Extra' $null 'src' $src (Join-NNParts @('Extras', 'src')) $true
+
+        Mock Get-ChildItem {
+            Write-Error 'Access to the path is denied' -ErrorAction Continue
+            return @(Get-Item -LiteralPath (Join-Path $src 'ok.txt'))
+        } -ParameterFilter { $Recurse -eq $true }
+
+        $q = New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'
+        $ctl = [hashtable]::Synchronized(@{ Cancel = $false; Pause = $false })
+        Invoke-NNCopyJob -Targets @($t) -JobRoot (Join-Path $dir 'out') -Control $ctl -Queue $q -Force $false
+
+        $m = $null; $msgs = @()
+        while ($q.TryDequeue([ref]$m)) { $msgs += $m }
+        $done = $msgs | Where-Object Type -eq 'done'
+        ($done.Problems -join ';') | Should -Match 'ENUM-FAIL\('
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
 }

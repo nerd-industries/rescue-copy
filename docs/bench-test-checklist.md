@@ -17,6 +17,7 @@ ideally a second drive with a Windows install + OneDrive data as "customer".
 - [ ] Name prefilled from a slaved drive's registry (SYSTEM hive)
 - [ ] Hint shown and field editable when hive unreadable
 - [ ] Destination preview updates as you type; invalid chars stripped
+- [ ] Note: hostname read loads the SYSTEM hive via reg.exe (harmless dirty-flag replay possible; degrades to blank name on write-protected drives)
 
 ## Step 3 — Selection
 - [ ] Tree populates per user with sizes; all profile folders checked
@@ -42,5 +43,8 @@ ideally a second drive with a Windows install + OneDrive data as "customer".
 - [ ] "Re-copy everything" forces a full recopy
 - [ ] Verify checkbox runs the SHA-256 pass and reports 0 mismatches
 - [ ] Long path (>260 chars) file copies successfully
+- [ ] Long path (>260 chars) copies under Windows PowerShell 5.1 specifically (not just pwsh 7)
+- [ ] Disk-full run: fill destination, confirm copy halts with FATAL message and report still writes
+- [ ] Toggle AppData checkbox mid-scan: tree rebuilds without duplicate users
 
 Sign-off: __________  Date: __________

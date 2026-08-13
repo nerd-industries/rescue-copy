@@ -40,6 +40,15 @@ function Join-NNParts {
     return $p
 }
 
+function Test-NNPathOverlap {
+    param([string]$PathA, [string]$PathB)
+    $a = $PathA.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    $b = $PathB.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    if ($a.StartsWith($b, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    if ($b.StartsWith($a, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    return $false
+}
+
 function ConvertTo-NNLongPath {
     param([string]$Path)
     if ($Path.StartsWith('\\?\')) { return $Path }
@@ -281,13 +290,15 @@ function Invoke-NNCopyJob {
     param($Targets, [string]$JobRoot, $Control, $Queue, [bool]$Force)
 
     # Pass 1: enumerate work
-    $files = New-Object System.Collections.Generic.List[object]
+    $files    = New-Object System.Collections.Generic.List[object]
+    $problems = New-Object System.Collections.Generic.List[string]
     $totalBytes = [long]0
+    $enumErrs = @()
     foreach ($t in $Targets) {
         $src = Get-Item -Force -LiteralPath $t.SourcePath -ErrorAction SilentlyContinue
         if (-not $src) { continue }
         if ($src.PSIsContainer) {
-            foreach ($f in @(Get-ChildItem -LiteralPath $src.FullName -Recurse -Force -File -ErrorAction SilentlyContinue)) {
+            foreach ($f in @(Get-ChildItem -LiteralPath $src.FullName -Recurse -Force -File -ErrorAction SilentlyContinue -ErrorVariable +enumErrs)) {
                 $rel = $f.FullName.Substring($src.FullName.Length).TrimStart('\', '/')
                 $files.Add(@{ File = $f; Dest = (Join-Path (Join-Path $JobRoot $t.DestRel) $rel) })
                 $totalBytes += $f.Length
@@ -297,11 +308,16 @@ function Invoke-NNCopyJob {
             $totalBytes += $src.Length
         }
     }
+    if (@($enumErrs).Count -gt 0) {
+        $cap = [Math]::Min(50, @($enumErrs).Count)
+        for ($ei = 0; $ei -lt $cap; $ei++) {
+            $problems.Add('ENUM-FAIL(' + $enumErrs[$ei].Exception.Message + ')')
+        }
+    }
     $Queue.Enqueue([pscustomobject]@{ Type = 'plan'; Count = $files.Count; Bytes = $totalBytes })
 
     $buffer   = New-Object byte[] 1048576
     $summary  = @{}
-    $problems = New-Object System.Collections.Generic.List[string]
     $pairs    = New-Object System.Collections.Generic.List[object]
     $done = [long]0
     $i = 0
@@ -332,9 +348,18 @@ function Invoke-NNCopyJob {
                 if ($r -ne 'OK' -and $r -ne 'SKIP-EXISTS') { $problems.Add("$r  $($item.File.FullName)") }
                 $done += $item.File.Length
                 $i++
-                $csv.WriteLine(('{0:o},{1},{2},"{3}","{4}"' -f [DateTime]::UtcNow, $r, $item.File.Length,
+                $csv.WriteLine(('{0:o},"{1}",{2},"{3}","{4}"' -f [DateTime]::UtcNow, $r.Replace('"', '""'), $item.File.Length,
                     $item.File.FullName.Replace('"', '""'), $item.Dest.Replace('"', '""')))
                 $Queue.Enqueue([pscustomobject]@{ Type = 'file'; Result = $r; Path = $item.File.FullName; BytesDone = $done; Index = $i })
+
+                if ($r -like 'READ-FAIL*') {
+                    $free = -1
+                    try { $free = (New-Object IO.DriveInfo([IO.Path]::GetPathRoot($JobRoot))).AvailableFreeSpace } catch { }
+                    if ($free -ge 0 -and $free -lt 1048576) {
+                        $problems.Add('FATAL(Destination drive is full - copy halted. Free space and re-run to resume.)')
+                        break
+                    }
+                }
             }
         } finally {
             $csv.Dispose()
@@ -755,7 +780,8 @@ function Start-NNScan {
     $c.UI.TreeSel.Items.Clear()
     $c.Model = New-Object System.Collections.Generic.List[object]
     $c.UI.TxtScanStatus.Text = 'Scanning...'
-    $c.ScanJob = Start-NNBackground 'Invoke-NNScanJob' @($c.SourceRoot, [bool]$c.UI.ChkAppData.IsChecked, $c.Queue)
+    $c.ScanGen++
+    $c.ScanJob = Start-NNBackground 'Invoke-NNScanJob' @($c.SourceRoot, [bool]$c.UI.ChkAppData.IsChecked, $c.Queue, $c.ScanGen)
 }
 
 function Read-NNQueue {
@@ -763,13 +789,17 @@ function Read-NNQueue {
     $m = $null
     while ($c.Queue.TryDequeue([ref]$m)) {
         if ($m.Type -eq 'scangroup') {
-            $c.Model.Add($m.Group)
-            Add-NNTreeGroup $m.Group
-            Update-NNTotals
+            if ($m.Gen -eq $c.ScanGen) {
+                $c.Model.Add($m.Group)
+                Add-NNTreeGroup $m.Group
+                Update-NNTotals
+            }
         }
         elseif ($m.Type -eq 'scandone') {
-            if ($m.Error) { $c.UI.TxtScanStatus.Text = 'Scan failed: ' + $m.Error }
-            else { $c.UI.TxtScanStatus.Text = 'Scan complete.' }
+            if ($m.Gen -eq $c.ScanGen) {
+                if ($m.Error) { $c.UI.TxtScanStatus.Text = 'Scan failed: ' + $m.Error }
+                else { $c.UI.TxtScanStatus.Text = 'Scan complete.' }
+            }
         }
         elseif ($m.Type -eq 'plan') {
             $c.PlanBytes = [long]$m.Bytes; $c.PlanCount = [int]$m.Count
@@ -786,6 +816,12 @@ function Read-NNQueue {
             $c.UI.TxtCounters.Text = ($parts -join '    ')
             if ($m.Result -ne 'OK' -and $m.Result -ne 'SKIP-EXISTS') {
                 $null = $c.UI.LbProblems.Items.Add(('{0}  {1}' -f $m.Result, $m.Path))
+            }
+            if ($c.CopyWatch -and $c.PlanBytes -gt 0 -and $m.BytesDone -gt 0) {
+                $elapsed = $c.CopyWatch.Elapsed
+                $etaSec = ($elapsed.TotalSeconds / $m.BytesDone) * ($c.PlanBytes - $m.BytesDone)
+                if ($etaSec -lt 0) { $etaSec = 0 }
+                $c.UI.TxtPhase.Text = ('Copying... {0:hh\:mm\:ss} elapsed, ~{1:hh\:mm\:ss} left' -f $elapsed, [TimeSpan]::FromSeconds($etaSec))
             }
         }
         elseif ($m.Type -eq 'done') {
@@ -806,7 +842,13 @@ function Read-NNQueue {
         }
         elseif ($m.Type -eq 'verifydone') {
             foreach ($mm in $m.Mismatches) { $c.Problems.Add($mm) }
-            if (@($m.Mismatches).Count -gt 0) { $c.Summary['HASH-MISMATCH'] = @($m.Mismatches).Count }
+            $hashCount = 0
+            $failCount = 0
+            foreach ($mm in $m.Mismatches) {
+                if ($mm -like 'HASH-MISMATCH*') { $hashCount++ } else { $failCount++ }
+            }
+            if ($hashCount -gt 0) { $c.Summary['HASH-MISMATCH'] = $hashCount }
+            if ($failCount -gt 0) { $c.Summary['VERIFY-FAIL'] = $failCount }
             Complete-NNJob
         }
     }
@@ -814,8 +856,13 @@ function Read-NNQueue {
 
 function Complete-NNJob {
     $c = $script:NNCtx
-    $c.ReportPath = Join-Path $c.JobRoot '_RescueReport.html'
-    $null = New-NNHtmlReport -Summary $c.Summary -Problems $c.Problems -JobName $c.JobName -Bytes $c.BytesDone -OutPath $c.ReportPath
+    try {
+        $reportPath = Join-Path $c.JobRoot '_RescueReport.html'
+        $null = New-NNHtmlReport -Summary $c.Summary -Problems $c.Problems -JobName $c.JobName -Bytes $c.BytesDone -OutPath $reportPath
+        $c.ReportPath = $reportPath
+    } catch {
+        $c.ReportPath = $null
+    }
     $lines = @()
     foreach ($k in ($c.Summary.Keys | Sort-Object)) { $lines += ('{0,-22} {1}' -f $k, $c.Summary[$k]) }
     $c.UI.TxtSummary.Text = ($lines -join [Environment]::NewLine)
@@ -855,7 +902,7 @@ function Start-NNRescueGui {
         Queue = (New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]')
         Tally = @{}; Problems = (New-Object System.Collections.Generic.List[string])
         Summary = $null; Pairs = $null; PlanBytes = [long]0; PlanCount = 0
-        ReportPath = $null; BytesDone = [long]0
+        ReportPath = $null; BytesDone = [long]0; ScanGen = 0; CopyWatch = $null
     }
 
     # --- events ---
@@ -904,8 +951,8 @@ function Start-NNRescueGui {
             }
             $c.BackupRoot = $c.UI.LvDest.SelectedItem.Root
             $c.DestFreeBytes = [long]$c.UI.LvDest.SelectedItem.FreeBytes
-            if ($c.BackupRoot -eq $c.SourceRoot) {
-                [System.Windows.MessageBox]::Show('Source and destination must differ.', 'NN Rescue Copy') | Out-Null; return
+            if (Test-NNPathOverlap $c.BackupRoot $c.SourceRoot) {
+                [System.Windows.MessageBox]::Show('Destination overlaps the source drive. Pick a different backup drive.', 'NN Rescue Copy') | Out-Null; return
             }
             if (-not $c.UI.TxtJobName.Text) {
                 $hn = Get-NNSourceHostname $c.SourceRoot
@@ -940,6 +987,7 @@ function Start-NNRescueGui {
             $c.Control.Cancel = $false; $c.Control.Pause = $false
             $c.Tally = @{}; $c.Problems.Clear(); $c.UI.LbProblems.Items.Clear()
             Show-NNStep 4
+            $c.CopyWatch = [Diagnostics.Stopwatch]::StartNew()
             $c.CopyJob = Start-NNBackground 'Invoke-NNCopyJob' @($targets, $c.JobRoot, $c.Control, $c.Queue, [bool]$c.UI.ChkForce.IsChecked)
         }
     })
@@ -972,16 +1020,16 @@ function Start-NNRescueGui {
 }
 
 function Invoke-NNScanJob {
-    param([string]$SourceRoot, [bool]$IncludeAppData, $Queue)
+    param([string]$SourceRoot, [bool]$IncludeAppData, $Queue, [int]$Gen)
     try {
         $model = Build-NNSelectionModel $SourceRoot $IncludeAppData
         foreach ($g in $model) {
             foreach ($i in $g.Items) { $i.SizeBytes = Get-NNFolderSize $i.SourcePath }
-            $Queue.Enqueue([pscustomobject]@{ Type = 'scangroup'; Group = $g })
+            $Queue.Enqueue([pscustomobject]@{ Type = 'scangroup'; Group = $g; Gen = $Gen })
         }
-        $Queue.Enqueue([pscustomobject]@{ Type = 'scandone'; Error = $null })
+        $Queue.Enqueue([pscustomobject]@{ Type = 'scandone'; Error = $null; Gen = $Gen })
     } catch {
-        $Queue.Enqueue([pscustomobject]@{ Type = 'scandone'; Error = $_.Exception.Message })
+        $Queue.Enqueue([pscustomobject]@{ Type = 'scandone'; Error = $_.Exception.Message; Gen = $Gen })
     }
 }
 #endregion

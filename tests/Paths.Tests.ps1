@@ -9,6 +9,31 @@ Describe 'ConvertTo-NNLongPath' {
     It 'converts UNC paths' { ConvertTo-NNLongPath '\\srv\share\f' | Should -Be '\\?\UNC\srv\share\f' }
 }
 
+Describe 'Test-NNPathOverlap' {
+    # Built with Join-NNParts (platform separator) rather than hardcoded '\' so
+    # these assertions hold on both the Linux test box and real Windows targets.
+    It 'flags overlap when the paths are equal' {
+        $p = Join-NNParts @('mnt', 'data')
+        Test-NNPathOverlap $p $p | Should -BeTrue
+    }
+    It 'flags overlap when A contains B' {
+        Test-NNPathOverlap (Join-NNParts @('mnt', 'data')) (Join-NNParts @('mnt', 'data', 'sub', 'deeper')) | Should -BeTrue
+    }
+    It 'flags overlap when B contains A' {
+        Test-NNPathOverlap (Join-NNParts @('mnt', 'data', 'sub', 'deeper')) (Join-NNParts @('mnt', 'data')) | Should -BeTrue
+    }
+    It 'flags overlap case-insensitively' {
+        Test-NNPathOverlap (Join-NNParts @('MNT', 'DATA')) (Join-NNParts @('mnt', 'data', 'sub')) | Should -BeTrue
+    }
+    It 'does not flag sibling directories' {
+        Test-NNPathOverlap (Join-NNParts @('mnt', 'data')) (Join-NNParts @('mnt', 'backup')) | Should -BeFalse
+    }
+    It 'does not flag lookalike prefixes' {
+        Test-NNPathOverlap (Join-NNParts @('mnt', 'data')) (Join-NNParts @('mnt', 'data2')) | Should -BeFalse
+        Test-NNPathOverlap (Join-NNParts @('mnt', 'data2')) (Join-NNParts @('mnt', 'data')) | Should -BeFalse
+    }
+}
+
 Describe 'Join-NNParts' {
     It 'joins with the platform separator' {
         Join-NNParts @('Users','bob','Desktop') |

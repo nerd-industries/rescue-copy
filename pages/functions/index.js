@@ -83,8 +83,12 @@ function errorScript(status, reason) {
   const body =
     `Write-Host 'NN Rescue Copy could not be downloaded.' -ForegroundColor Red\n` +
     `Write-Host '${reason.replace(/'/g, "''")}' -ForegroundColor Yellow\n`;
+  // Always respond 200: this is piped straight into `iex` by irm|iex users, and a
+  // non-2xx status can make irm throw before the body (our actual error signal,
+  // surfaced via Write-Host) ever reaches the shell. `status`/`reason` still note
+  // the real failure for anything that inspects them directly.
   return new Response(body, {
-    status,
+    status: 200,
     headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
   });
 }
