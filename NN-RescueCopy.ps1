@@ -418,54 +418,144 @@ function Invoke-NNVerifyPass {
 #endregion
 
 #region Report
+# Nerdy Neighbor logo, black on white, 840x320 PNG (16-gray palette), for the printed report
+$NNLogoB64 = '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'
+
 function New-NNHtmlReport {
     param([hashtable]$Summary, [string[]]$Problems, [string]$JobName, [long]$Bytes, [string]$OutPath)
 
     function Encode-NNHtml { param([string]$s)
         return $s.Replace('&', '&amp;').Replace('<', '&lt;').Replace('>', '&gt;').Replace('"', '&quot;')
     }
+    function Get-NNCount { param($h, [string]$k)
+        if ($h.ContainsKey($k)) { return [int]$h[$k] }
+        return 0
+    }
+    function Get-NNRowFace { param([string]$code)
+        # glyph + plain-language label for the customer-facing ledger
+        if ($code -eq 'OK')              { return @('&#10003;', 'Copied and verified') }
+        if ($code -eq 'SKIP-EXISTS')     { return @('&#8635;',  'Already backed up from an earlier run') }
+        if ($code -eq 'CLOUD-ONLY')      { return @('&#9729;',  'Stored only in your cloud account') }
+        if ($code -like 'OPEN-FAIL*')    { return @('&#10007;', 'Could not be opened - damaged on the drive') }
+        if ($code -like 'READ-FAIL*')    { return @('&#10007;', 'Copy failed partway - drive read error') }
+        if ($code -like 'SIZE-MISMATCH*'){ return @('&#10007;', 'Copy did not match the original') }
+        if ($code -like 'HASH-MISMATCH*'){ return @('&#10007;', 'Verification found a difference') }
+        if ($code -like 'VERIFY-*')      { return @('&#10007;', 'Could not be verified') }
+        return @('&#10007;', 'Needs attention - see technical notes')
+    }
 
+    $ok        = Get-NNCount $Summary 'OK'
+    $skip      = Get-NNCount $Summary 'SKIP-EXISTS'
+    $cloud     = Get-NNCount $Summary 'CLOUD-ONLY'
+    $probCount = @($Problems).Count
+    $total     = 0
+    foreach ($k in $Summary.Keys) { $total += [int]$Summary[$k] }
+
+    # Ledger rows: the good outcomes first, then everything else alphabetically
+    $ordered = New-Object System.Collections.Generic.List[string]
+    foreach ($k in @('OK', 'SKIP-EXISTS', 'CLOUD-ONLY')) { if ($Summary.ContainsKey($k)) { $ordered.Add($k) } }
+    foreach ($k in ($Summary.Keys | Sort-Object)) { if ($ordered -notcontains $k) { $ordered.Add($k) } }
     $rows = ''
-    foreach ($k in ($Summary.Keys | Sort-Object)) {
-        $color = '#e2e8f0'
-        if ($k -eq 'OK') { $color = '#4ade80' }
-        elseif ($k -eq 'SKIP-EXISTS') { $color = '#94a3b8' }
-        elseif ($k -eq 'CLOUD-ONLY') { $color = '#fbbf24' }
-        else { $color = '#f87171' }
-        $rows += ('<tr><td style="color:{0}">{1}</td><td style="text-align:right">{2}</td></tr>' -f $color, (Encode-NNHtml $k), $Summary[$k])
+    foreach ($k in $ordered) {
+        $face = Get-NNRowFace $k
+        $rows += ('<tr><td class="g">{0}</td><td>{1}<span class="code">{2}</span></td><td class="n">{3}</td></tr>' -f `
+            $face[0], $face[1], (Encode-NNHtml $k), $Summary[$k])
     }
-
-    $probHtml = ''
-    if (@($Problems).Count -gt 0) {
-        $items = ''
-        foreach ($p in $Problems) { $items += ('<li><code>{0}</code></li>' -f (Encode-NNHtml $p)) }
-        $probHtml = ('<h2>Files needing attention</h2><ul>{0}</ul>' -f $items)
-    }
+    $rows += ('<tr class="total"><td></td><td>Total files processed</td><td class="n">{0}</td></tr>' -f $total)
 
     $cloudHtml = ''
-    $cloudCount = 0
-    foreach ($k in $Summary.Keys) { if ($k -eq 'CLOUD-ONLY') { $cloudCount = $Summary[$k] } }
-    if ($cloudCount -gt 0) {
-        $cloudHtml = ('<div class="note"><strong>{0} cloud-only file(s) were skipped.</strong> ' +
-            'These files live only in the customer''s cloud account (OneDrive/Dropbox) - there is no local data on the drive. ' +
-            'To recover them, sign into the account on a working machine and let them download.</div>') -f $cloudCount
+    if ($cloud -gt 0) {
+        $cloudHtml = ('<div class="callout"><div class="ic">&#9729;</div><div>' +
+            '<h3>Some files still live in your cloud account</h3>' +
+            '<p>{0} file(s) were stored online-only by OneDrive or Dropbox, so they were not on the drive itself. ' +
+            'To get them back, sign in to the cloud account on the repaired or replacement computer and they will download automatically.</p>' +
+            '</div></div>') -f $cloud
     }
 
+    $attentionHtml = '<p class="allclear">Every file was processed without issues.</p>'
+    $appendixHtml = ''
+    if ($probCount -gt 0) {
+        $attentionHtml = ('<p class="attention">{0} item(s) need attention. The technical appendix on the last page lists each one for our records.</p>' -f $probCount)
+        $items = ''
+        foreach ($p in $Problems) { $items += ('<li>{0}</li>' -f (Encode-NNHtml $p)) }
+        $appendixHtml = ('<section class="appendix"><h2>Technical appendix &middot; full detail for our records</h2>' +
+            '<ul>{0}</ul>' +
+            '<p class="apx-note">A complete per-file log was saved alongside this report as _RescueLog.csv.</p>' +
+            '</section>') -f $items
+    }
+
+    $jobEnc  = Encode-NNHtml $JobName
+    $dateStr = [DateTime]::Now.ToString('MMMM d, yyyy')
+
     $html = @"
-<!doctype html><html><head><meta charset="utf-8"><title>NN Rescue Report - $(Encode-NNHtml $JobName)</title>
+<!doctype html><html><head><meta charset="utf-8">
+<title>Data Rescue Report - $jobEnc</title>
 <style>
-body{font-family:'Segoe UI',Arial,sans-serif;background:#0f172a;color:#e2e8f0;max-width:860px;margin:40px auto;padding:0 20px;line-height:1.5}
-h1{color:#38bdf8;margin-bottom:2px} .sub{color:#94a3b8;margin-top:0}
-table{border-collapse:collapse;min-width:340px} td{padding:6px 14px;border-bottom:1px solid #334155}
-.note{background:#1e293b;border-left:4px solid #fbbf24;padding:12px 16px;border-radius:6px;margin:18px 0}
-code{color:#f87171;word-break:break-all} ul{padding-left:18px} li{margin:4px 0}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#e6e5e2;font-family:Georgia,'Times New Roman',serif;color:#111;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{max-width:8.5in;margin:28px auto;background:#fff;padding:0.85in 0.8in;box-shadow:0 2px 26px rgba(0,0,0,0.18)}
+header{display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:16px;border-bottom:3px solid #111}
+header img{width:2.5in;display:block}
+.meta{text-align:right;font-family:'Segoe UI',Arial,sans-serif;font-size:11px;color:#444;line-height:1.8}
+.meta .k{font-size:9px;letter-spacing:0.14em;color:#999}
+h1{font-family:'Segoe UI',Arial,sans-serif;font-weight:300;font-size:34px;letter-spacing:0.3px;margin:26px 0 2px}
+.eyebrow{font-family:'Segoe UI',Arial,sans-serif;font-size:10px;font-weight:600;letter-spacing:0.22em;color:#777;margin-top:28px}
+.stats{display:flex;border:1px solid #d9d9d9;margin:22px 0 24px}
+.stat{flex:1;padding:15px 18px 13px;border-left:1px solid #d9d9d9}
+.stat:first-child{border-left:0}
+.stat .v{font-family:'Segoe UI',Arial,sans-serif;font-weight:300;font-size:30px;line-height:1.15}
+.stat .l{font-family:'Segoe UI',Arial,sans-serif;font-size:9.5px;font-weight:600;letter-spacing:0.16em;color:#777;margin-top:3px}
+p.lead{font-size:14px;line-height:1.7;color:#1a1a1a;max-width:6.6in}
+.callout{border:1.5px solid #111;padding:15px 17px;margin:22px 0;display:flex;gap:14px}
+.callout .ic{font-size:22px;line-height:1.2}
+.callout h3{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:5px}
+.callout p{font-size:12.5px;line-height:1.65;color:#222}
+.attention,.allclear{font-size:12.5px;line-height:1.6;color:#222;margin:4px 0 18px;font-style:italic}
+table.ledger{width:100%;border-collapse:collapse;margin:6px 0 0;font-family:'Segoe UI',Arial,sans-serif;font-size:13px}
+.ledger td{padding:9px 6px;border-bottom:1px solid #e3e3e3;vertical-align:top}
+.ledger td.g{width:26px;font-size:14px;text-align:center}
+.ledger span.code{font-family:Consolas,monospace;font-size:10px;color:#9a9a9a;margin-left:9px}
+.ledger td.n{text-align:right;font-weight:600;font-variant-numeric:tabular-nums;width:70px}
+.ledger tr.total td{border-top:2px solid #111;border-bottom:0;font-weight:700;padding-top:11px}
+.signoff{display:flex;gap:48px;margin-top:38px;font-family:'Segoe UI',Arial,sans-serif;font-size:10px;letter-spacing:0.1em;color:#666}
+.signoff .line{border-top:1px solid #111;padding-top:6px;min-width:2.4in;margin-top:30px}
+footer{margin-top:32px;padding-top:12px;border-top:1px solid #ddd;font-family:'Segoe UI',Arial,sans-serif;font-size:10px;color:#999;letter-spacing:0.06em}
+.appendix{page-break-before:always;padding-top:20px}
+.appendix h2{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#444;margin-bottom:12px}
+.appendix ul{list-style:none}
+.appendix li{font-family:Consolas,monospace;font-size:10.5px;line-height:1.5;padding:4px 0;border-bottom:1px dotted #ddd;word-break:break-all}
+.apx-note{font-family:'Segoe UI',Arial,sans-serif;font-size:10px;color:#999;margin-top:12px}
+@media print{body{background:#fff}.page{max-width:none;margin:0;box-shadow:none;padding:0}}
+@page{margin:0.7in}
 </style></head><body>
-<h1>NN Rescue Copy</h1>
-<p class="sub">Job: $(Encode-NNHtml $JobName) &middot; $(Format-NNBytes $Bytes) processed &middot; $([DateTime]::Now.ToString('yyyy-MM-dd HH:mm'))</p>
-<h2>Results</h2><table>$rows</table>
+<div class="page">
+<header>
+  <img src="data:image/png;base64,$NNLogoB64" alt="Nerdy Neighbor - Computer Repair &amp; Business Solutions">
+  <div class="meta">
+    <div><span class="k">JOB&nbsp;&nbsp;</span>$jobEnc</div>
+    <div><span class="k">DATE&nbsp;&nbsp;</span>$dateStr</div>
+  </div>
+</header>
+<div class="eyebrow">DATA RECOVERY SERVICE</div>
+<h1>Data Rescue Report</h1>
+<div class="stats">
+  <div class="stat"><div class="v">$(Format-NNBytes $Bytes)</div><div class="l">DATA PROCESSED</div></div>
+  <div class="stat"><div class="v">$($ok + $skip)</div><div class="l">FILES SECURED</div></div>
+  <div class="stat"><div class="v">$probCount</div><div class="l">NEED ATTENTION</div></div>
+</div>
+<p class="lead">We copied the files listed below from your computer's drive onto a backup drive.
+Every recovered file was checked to confirm the copy matches the original's size$(if ($Summary.ContainsKey('HASH-MISMATCH') -or $Summary.ContainsKey('VERIFY-FAIL')) { ' and contents' }).
+Nothing on your original drive was changed or deleted.</p>
 $cloudHtml
-$probHtml
-<p class="sub">Nerdy Neighbor &middot; copy.nerdyneighbor.net</p>
+<table class="ledger">$rows</table>
+$attentionHtml
+<div class="signoff">
+  <div class="line">TECHNICIAN</div>
+  <div class="line">DATE</div>
+</div>
+<footer>NERDY NEIGHBOR &middot; COMPUTER REPAIR &amp; BUSINESS SOLUTIONS &middot; copy.nerdyneighbor.net</footer>
+$appendixHtml
+</div>
 </body></html>
 "@
     [IO.File]::WriteAllText($OutPath, $html, [Text.Encoding]::UTF8)
@@ -503,125 +593,316 @@ function Get-NNSelectedBytes {
 $NNXaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="NN Rescue Copy" Height="700" Width="1040" WindowStartupLocation="CenterScreen"
+        Title="NN Rescue Copy" Height="720" Width="1100" MinHeight="640" MinWidth="980"
+        WindowStartupLocation="CenterScreen"
         Background="#0F172A" Foreground="#E2E8F0" FontFamily="Segoe UI" FontSize="13">
   <Window.Resources>
     <Style TargetType="Button">
-      <Setter Property="Background" Value="#1E3A5F"/>
+      <Setter Property="Background" Value="#233752"/>
       <Setter Property="Foreground" Value="#E2E8F0"/>
-      <Setter Property="BorderBrush" Value="#334155"/>
-      <Setter Property="Padding" Value="16,8"/>
+      <Setter Property="Padding" Value="18,9"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
       <Setter Property="Cursor" Value="Hand"/>
-    </Style>
-    <Style TargetType="ListView">
-      <Setter Property="Background" Value="#1E293B"/>
-      <Setter Property="Foreground" Value="#E2E8F0"/>
-      <Setter Property="BorderBrush" Value="#334155"/>
-    </Style>
-    <Style TargetType="ListBox">
-      <Setter Property="Background" Value="#1E293B"/>
-      <Setter Property="Foreground" Value="#F87171"/>
-      <Setter Property="BorderBrush" Value="#334155"/>
-    </Style>
-    <Style TargetType="TreeView">
-      <Setter Property="Background" Value="#1E293B"/>
-      <Setter Property="Foreground" Value="#E2E8F0"/>
-      <Setter Property="BorderBrush" Value="#334155"/>
-    </Style>
-    <Style TargetType="TextBox">
-      <Setter Property="Background" Value="#1E293B"/>
-      <Setter Property="Foreground" Value="#E2E8F0"/>
-      <Setter Property="BorderBrush" Value="#334155"/>
-      <Setter Property="Padding" Value="8,6"/>
-      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" CornerRadius="8" Background="{TemplateBinding Background}"
+                    BorderBrush="#334155" BorderThickness="1" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.85"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.7"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.4"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <Style TargetType="CheckBox">
       <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Margin" Value="0,4"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="CheckBox">
+            <StackPanel Orientation="Horizontal" Background="Transparent">
+              <Border x:Name="Box" Width="17" Height="17" CornerRadius="4" BorderThickness="1.5"
+                      BorderBrush="#475569" Background="#0F172A" VerticalAlignment="Center">
+                <Path x:Name="Check" Data="M 3.2,8.6 L 7,12.2 L 13.4,4.2" Stroke="#0B1220" StrokeThickness="2.4"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed"/>
+              </Border>
+              <ContentPresenter Margin="9,0,0,0" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+            </StackPanel>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Box" Property="Background" Value="#38BDF8"/>
+                <Setter TargetName="Box" Property="BorderBrush" Value="#38BDF8"/>
+                <Setter TargetName="Check" Property="Visibility" Value="Visible"/>
+              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Box" Property="BorderBrush" Value="#38BDF8"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.4"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="Background" Value="#0F172A"/>
+      <Setter Property="CaretBrush" Value="#38BDF8"/>
+      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="TextBox">
+            <Border x:Name="Bd" CornerRadius="8" Background="{TemplateBinding Background}"
+                    BorderBrush="#334155" BorderThickness="1">
+              <ScrollViewer x:Name="PART_ContentHost" Margin="10,7" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="#38BDF8"/>
+              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="#38BDF8"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="ProgressBar">
+      <Setter Property="Height" Value="14"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ProgressBar">
+            <Grid>
+              <Border x:Name="PART_Track" Background="#0B1220" BorderBrush="#334155" BorderThickness="1" CornerRadius="7"/>
+              <Border x:Name="PART_Indicator" HorizontalAlignment="Left" CornerRadius="7" Margin="1">
+                <Border.Background>
+                  <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                    <GradientStop Color="#0284C7" Offset="0"/>
+                    <GradientStop Color="#38BDF8" Offset="1"/>
+                  </LinearGradientBrush>
+                </Border.Background>
+              </Border>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="ListView">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="AlternationCount" Value="2"/>
+    </Style>
+    <Style TargetType="ListViewItem">
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="Padding" Value="6,7"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ListViewItem">
+            <Border x:Name="Bd" Background="Transparent" BorderBrush="Transparent" BorderThickness="1"
+                    CornerRadius="6" Padding="{TemplateBinding Padding}" Margin="0,1">
+              <GridViewRowPresenter Content="{TemplateBinding Content}"
+                                    Columns="{TemplateBinding GridView.ColumnCollection}"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="ItemsControl.AlternationIndex" Value="1">
+                <Setter TargetName="Bd" Property="Background" Value="#223045"/>
+              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#26354E"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#14486E"/>
+                <Setter TargetName="Bd" Property="BorderBrush" Value="#38BDF8"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <Style TargetType="GridViewColumnHeader">
-      <Setter Property="Background" Value="#334155"/>
+      <Setter Property="Foreground" Value="#94A3B8"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="GridViewColumnHeader">
+            <Border Background="Transparent" BorderBrush="#334155" BorderThickness="0,0,0,1" Padding="8,0,8,7">
+              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="TreeView">
+      <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Foreground" Value="#E2E8F0"/>
-      <Setter Property="Padding" Value="8,4"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="4"/>
+    </Style>
+    <Style TargetType="TreeViewItem">
+      <Setter Property="IsExpanded" Value="True"/>
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="TreeViewItem">
+            <StackPanel>
+              <Border x:Name="Bd" CornerRadius="6" Padding="8,5" Background="Transparent">
+                <ContentPresenter ContentSource="Header" VerticalAlignment="Center"/>
+              </Border>
+              <ItemsPresenter Margin="26,0,0,4"/>
+            </StackPanel>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" SourceName="Bd" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#1C2A42"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="ListBox">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="#F87171"/>
+      <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+    <Style TargetType="ListBoxItem">
+      <Setter Property="Padding" Value="6,3"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ListBoxItem">
+            <Border Background="Transparent" Padding="{TemplateBinding Padding}">
+              <ContentPresenter/>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
   </Window.Resources>
   <DockPanel>
-    <!-- Left step rail -->
-    <StackPanel DockPanel.Dock="Left" Width="190" Background="#1E293B">
-      <TextBlock Text="NN Rescue Copy" FontSize="17" FontWeight="Bold" Foreground="#38BDF8" Margin="18,20,10,4"/>
-      <TextBlock Text="Nerdy Neighbor" Foreground="#94A3B8" Margin="18,0,10,24"/>
-      <TextBlock x:Name="RailStep1" Text="1  Drives"      Margin="18,6" FontWeight="Bold" Foreground="#38BDF8"/>
-      <TextBlock x:Name="RailStep2" Text="2  Job name"    Margin="18,6" Foreground="#94A3B8"/>
-      <TextBlock x:Name="RailStep3" Text="3  Selection"   Margin="18,6" Foreground="#94A3B8"/>
-      <TextBlock x:Name="RailStep4" Text="4  Copy"        Margin="18,6" Foreground="#94A3B8"/>
-      <TextBlock x:Name="RailStep5" Text="5  Done"        Margin="18,6" Foreground="#94A3B8"/>
-    </StackPanel>
+    <!-- Step rail -->
+    <Border DockPanel.Dock="Left" Width="212" Background="#0B1220" Padding="0,24,0,0">
+      <StackPanel>
+        <TextBlock Text="NERDY NEIGHBOR" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="26,0,0,2"/>
+        <TextBlock Text="Rescue Copy" FontSize="21" FontWeight="Bold" Foreground="#38BDF8" Margin="26,0,0,30"/>
+        <TextBlock x:Name="RailStep1" Text="1   Drives"    Padding="18,10" Margin="8,1" FontWeight="Bold" Foreground="#38BDF8"/>
+        <TextBlock x:Name="RailStep2" Text="2   Job name"  Padding="18,10" Margin="8,1" Foreground="#94A3B8"/>
+        <TextBlock x:Name="RailStep3" Text="3   Selection" Padding="18,10" Margin="8,1" Foreground="#94A3B8"/>
+        <TextBlock x:Name="RailStep4" Text="4   Copy"      Padding="18,10" Margin="8,1" Foreground="#94A3B8"/>
+        <TextBlock x:Name="RailStep5" Text="5   Done"      Padding="18,10" Margin="8,1" Foreground="#94A3B8"/>
+      </StackPanel>
+    </Border>
     <!-- Bottom nav -->
-    <Border DockPanel.Dock="Bottom" Background="#1E293B" Padding="16,10">
+    <Border DockPanel.Dock="Bottom" Background="#0B1220" BorderBrush="#1E293B" BorderThickness="0,1,0,0" Padding="22,12">
       <DockPanel>
         <Button x:Name="BtnBack" Content="Back" DockPanel.Dock="Left" Width="110" Visibility="Hidden"/>
-        <Button x:Name="BtnNext" Content="Next" DockPanel.Dock="Right" Width="150" HorizontalAlignment="Right" Background="#0369A1"/>
+        <Button x:Name="BtnNext" Content="Next" DockPanel.Dock="Right" Width="170" HorizontalAlignment="Right"
+                Background="#0284C7" FontSize="14"/>
         <TextBlock/>
       </DockPanel>
     </Border>
     <!-- Content -->
-    <Grid Margin="20">
+    <Grid Margin="26,22,26,16">
       <!-- Step 1: Drives -->
       <Grid x:Name="PanelStep1">
         <Grid.RowDefinitions>
-          <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-        <TextBlock Grid.Row="0" Text="Customer drive (source) - read-only" FontSize="15" FontWeight="Bold" Margin="0,0,0,6"/>
-        <ListView Grid.Row="1" x:Name="LvSource">
-          <ListView.View><GridView>
-            <GridViewColumn Header="Drive" Width="70" DisplayMemberBinding="{Binding Drive}"/>
-            <GridViewColumn Header="Label" Width="180" DisplayMemberBinding="{Binding Label}"/>
-            <GridViewColumn Header="Size" Width="100" DisplayMemberBinding="{Binding Size}"/>
-            <GridViewColumn Header="Free" Width="100" DisplayMemberBinding="{Binding Free}"/>
-            <GridViewColumn Header="Contents" Width="220" DisplayMemberBinding="{Binding Contents}"/>
-          </GridView></ListView.View>
-        </ListView>
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8">
-          <TextBlock Text="Backup drive (destination)" FontSize="15" FontWeight="Bold" VerticalAlignment="Center"/>
-          <Button x:Name="BtnBrowseSource" Content="Browse folder as source..." Margin="20,0,8,0" Padding="10,4"/>
-          <Button x:Name="BtnRescan" Content="Rescan drives" Padding="10,4"/>
-          <TextBlock x:Name="TxtSrcPick" Foreground="#4ADE80" Margin="14,0,0,0" VerticalAlignment="Center"/>
+        <StackPanel Grid.Row="0" Margin="0,0,0,14">
+          <TextBlock Text="Pick the drives" FontSize="19" FontWeight="SemiBold"/>
+          <TextBlock Text="The customer drive is only ever read. Everything lands on the backup drive." Foreground="#94A3B8" Margin="0,3,0,0"/>
         </StackPanel>
-        <ListView Grid.Row="3" x:Name="LvDest">
-          <ListView.View><GridView>
-            <GridViewColumn Header="Drive" Width="70" DisplayMemberBinding="{Binding Drive}"/>
-            <GridViewColumn Header="Label" Width="180" DisplayMemberBinding="{Binding Label}"/>
-            <GridViewColumn Header="Size" Width="100" DisplayMemberBinding="{Binding Size}"/>
-            <GridViewColumn Header="Free" Width="100" DisplayMemberBinding="{Binding Free}"/>
-            <GridViewColumn Header="Contents" Width="220" DisplayMemberBinding="{Binding Contents}"/>
-          </GridView></ListView.View>
-        </ListView>
-        <TextBlock Grid.Row="4" Foreground="#94A3B8" Margin="0,8,0,0"
-                   Text="The source drive is only ever read. Pick the slaved customer drive on top, your rescue disk below."/>
+        <Border Grid.Row="1" CornerRadius="12" Background="#1E293B" BorderBrush="#334155" BorderThickness="1" Padding="14,12">
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="CUSTOMER DRIVE - SOURCE, READ-ONLY" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" Margin="4,0,0,8"/>
+            <ListView x:Name="LvSource">
+              <ListView.View><GridView>
+                <GridViewColumn Header="Drive" Width="70" DisplayMemberBinding="{Binding Drive}"/>
+                <GridViewColumn Header="Label" Width="190" DisplayMemberBinding="{Binding Label}"/>
+                <GridViewColumn Header="Size" Width="100" DisplayMemberBinding="{Binding Size}"/>
+                <GridViewColumn Header="Free" Width="100" DisplayMemberBinding="{Binding Free}"/>
+                <GridViewColumn Header="Contents" Width="230" DisplayMemberBinding="{Binding Contents}"/>
+              </GridView></ListView.View>
+            </ListView>
+          </DockPanel>
+        </Border>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="2,10">
+          <Button x:Name="BtnBrowseSource" Content="Browse folder as source..." Padding="12,6" FontSize="12" FontWeight="Normal"/>
+          <Button x:Name="BtnRescan" Content="Rescan drives" Padding="12,6" FontSize="12" FontWeight="Normal" Margin="8,0,0,0"/>
+          <TextBlock x:Name="TxtSrcPick" Foreground="#4ADE80" Margin="16,0,0,0" VerticalAlignment="Center"/>
+        </StackPanel>
+        <Border Grid.Row="3" CornerRadius="12" Background="#1E293B" BorderBrush="#334155" BorderThickness="1" Padding="14,12">
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="BACKUP DRIVE - DESTINATION" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" Margin="4,0,0,8"/>
+            <ListView x:Name="LvDest">
+              <ListView.View><GridView>
+                <GridViewColumn Header="Drive" Width="70" DisplayMemberBinding="{Binding Drive}"/>
+                <GridViewColumn Header="Label" Width="190" DisplayMemberBinding="{Binding Label}"/>
+                <GridViewColumn Header="Size" Width="100" DisplayMemberBinding="{Binding Size}"/>
+                <GridViewColumn Header="Free" Width="100" DisplayMemberBinding="{Binding Free}"/>
+                <GridViewColumn Header="Contents" Width="230" DisplayMemberBinding="{Binding Contents}"/>
+              </GridView></ListView.View>
+            </ListView>
+          </DockPanel>
+        </Border>
       </Grid>
       <!-- Step 2: Job name -->
-      <StackPanel x:Name="PanelStep2" Visibility="Collapsed" MaxWidth="560" VerticalAlignment="Center">
-        <TextBlock Text="Customer / job name" FontSize="15" FontWeight="Bold" Margin="0,0,0,6"/>
-        <TextBox x:Name="TxtJobName"/>
-        <TextBlock x:Name="TxtJobHint" Foreground="#94A3B8" Margin="0,6,0,0" Text="Prefilled from the customer drive's registry when readable."/>
-        <TextBlock Text="Backup will be written to:" Foreground="#94A3B8" Margin="0,22,0,2"/>
-        <TextBlock x:Name="TxtDestPreview" Foreground="#4ADE80" FontFamily="Consolas" TextWrapping="Wrap"/>
-        <TextBlock Foreground="#94A3B8" Margin="0,14,0,0" TextWrapping="Wrap"
-                   Text="Re-using an existing job name resumes it: files already copied with matching sizes are skipped."/>
+      <StackPanel x:Name="PanelStep2" Visibility="Collapsed" MaxWidth="620" VerticalAlignment="Center">
+        <TextBlock Text="Name the job" FontSize="19" FontWeight="SemiBold"/>
+        <TextBlock Text="The backup folder is named after the customer. Re-using a name resumes that job." Foreground="#94A3B8" Margin="0,3,0,16"/>
+        <Border CornerRadius="12" Background="#1E293B" BorderBrush="#334155" BorderThickness="1" Padding="22,20">
+          <StackPanel>
+            <TextBlock Text="CUSTOMER / JOB NAME" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,7"/>
+            <TextBox x:Name="TxtJobName"/>
+            <TextBlock x:Name="TxtJobHint" Foreground="#94A3B8" FontSize="12" Margin="0,7,0,0" TextWrapping="Wrap"
+                       Text="Prefilled from the customer drive's registry when readable."/>
+            <TextBlock Text="BACKUP WILL BE WRITTEN TO" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,20,0,4"/>
+            <TextBlock x:Name="TxtDestPreview" Foreground="#4ADE80" FontFamily="Consolas" TextWrapping="Wrap"/>
+            <TextBlock Foreground="#94A3B8" FontSize="12" Margin="0,16,0,0" TextWrapping="Wrap"
+                       Text="Files already copied with matching sizes are skipped on a re-run, so a resumed job only copies what is missing."/>
+          </StackPanel>
+        </Border>
       </StackPanel>
       <!-- Step 3: Selection -->
       <Grid x:Name="PanelStep3" Visibility="Collapsed">
         <Grid.RowDefinitions>
-          <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+          <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-          <CheckBox x:Name="ChkAppData" Content="Include key AppData (browsers, Outlook PST/OST, Sticky Notes, Windows Mail)"/>
-          <CheckBox x:Name="ChkVerify" Content="Verify after copy (SHA-256)" Margin="24,4,0,4"/>
-          <CheckBox x:Name="ChkForce" Content="Re-copy everything (ignore resume)" Margin="24,4,0,4"/>
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+          <TextBlock Text="Choose what to copy" FontSize="19" FontWeight="SemiBold"/>
+          <TextBlock Text="Profile folders are pre-selected. Extras found outside user folders are off until you tick them." Foreground="#94A3B8" Margin="0,3,0,0"/>
         </StackPanel>
-        <TreeView Grid.Row="1" x:Name="TreeSel"/>
-        <DockPanel Grid.Row="2" Margin="0,8,0,0">
+        <Border Grid.Row="1" CornerRadius="10" Background="#1E293B" BorderBrush="#334155" BorderThickness="1" Padding="14,8" Margin="0,0,0,10">
+          <WrapPanel>
+            <CheckBox x:Name="ChkAppData" Content="Include key AppData (browsers, Outlook PST/OST, Sticky Notes, Windows Mail)" Margin="0,4,24,4"/>
+            <CheckBox x:Name="ChkVerify" Content="Verify after copy (SHA-256)" Margin="0,4,24,4"/>
+            <CheckBox x:Name="ChkForce" Content="Re-copy everything (ignore resume)" Margin="0,4,0,4"/>
+          </WrapPanel>
+        </Border>
+        <Border Grid.Row="2" CornerRadius="12" Background="#1E293B" BorderBrush="#334155" BorderThickness="1" Padding="8">
+          <TreeView x:Name="TreeSel"/>
+        </Border>
+        <DockPanel Grid.Row="3" Margin="2,10,2,0">
           <TextBlock x:Name="TxtScanStatus" Foreground="#94A3B8" DockPanel.Dock="Left" Text="Scanning..."/>
           <TextBlock x:Name="TxtTotals" DockPanel.Dock="Right" HorizontalAlignment="Right" FontWeight="Bold"/>
         </DockPanel>
@@ -629,26 +910,41 @@ $NNXaml = @'
       <!-- Step 4: Copy -->
       <Grid x:Name="PanelStep4" Visibility="Collapsed">
         <Grid.RowDefinitions>
-          <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+          <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <TextBlock Grid.Row="0" x:Name="TxtPhase" Text="Copying..." FontSize="15" FontWeight="Bold" Margin="0,0,0,8"/>
-        <ProgressBar Grid.Row="1" x:Name="PbOverall" Height="22" Background="#1E293B" Foreground="#38BDF8"/>
-        <TextBlock Grid.Row="2" x:Name="TxtCurrentFile" Foreground="#94A3B8" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"/>
-        <TextBlock Grid.Row="3" x:Name="TxtCounters" Margin="0,8,0,8" FontFamily="Consolas"/>
-        <ListBox Grid.Row="4" x:Name="LbProblems" FontFamily="Consolas" FontSize="12"/>
-        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+        <TextBlock Grid.Row="0" x:Name="TxtPhase" Text="Copying..." FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12"/>
+        <ProgressBar Grid.Row="1" x:Name="PbOverall"/>
+        <TextBlock Grid.Row="2" x:Name="TxtCurrentFile" Foreground="#94A3B8" FontFamily="Consolas" FontSize="11"
+                   Margin="2,9,2,0" TextTrimming="CharacterEllipsis"/>
+        <TextBlock Grid.Row="3" x:Name="TxtCounters" Margin="2,10,2,10" FontFamily="Consolas" FontSize="12"/>
+        <Border Grid.Row="4" CornerRadius="12" Background="#1E293B" BorderBrush="#334155" BorderThickness="1" Padding="12,10">
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="PROBLEMS" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" Margin="2,0,0,6"/>
+            <ListBox x:Name="LbProblems" FontFamily="Consolas" FontSize="12"/>
+          </DockPanel>
+        </Border>
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
           <Button x:Name="BtnPause" Content="Pause" Width="110" Margin="0,0,10,0"/>
           <Button x:Name="BtnCancelCopy" Content="Cancel" Width="110" Background="#7F1D1D"/>
         </StackPanel>
       </Grid>
       <!-- Step 5: Done -->
-      <StackPanel x:Name="PanelStep5" Visibility="Collapsed" MaxWidth="640" VerticalAlignment="Center">
-        <TextBlock Text="Rescue complete" FontSize="20" FontWeight="Bold" Foreground="#4ADE80"/>
-        <TextBlock x:Name="TxtSummary" Margin="0,12,0,0" FontFamily="Consolas" TextWrapping="Wrap"/>
-        <TextBlock x:Name="TxtCloudNote" Margin="0,12,0,0" Foreground="#FBBF24" TextWrapping="Wrap"/>
-        <ListBox x:Name="LbFinalProblems" MaxHeight="180" Margin="0,12,0,0" FontFamily="Consolas" FontSize="12"/>
+      <StackPanel x:Name="PanelStep5" Visibility="Collapsed" MaxWidth="680" VerticalAlignment="Center">
+        <TextBlock Text="Rescue complete" FontSize="24" FontWeight="Bold" Foreground="#4ADE80"/>
+        <Border CornerRadius="12" Background="#1E293B" BorderBrush="#334155" BorderThickness="1" Padding="20,16" Margin="0,14,0,0">
+          <StackPanel>
+            <TextBlock x:Name="TxtSummary" FontFamily="Consolas" FontSize="13" TextWrapping="Wrap"/>
+            <TextBlock x:Name="TxtCloudNote" Margin="0,12,0,0" Foreground="#FBBF24" TextWrapping="Wrap"/>
+            <ListBox x:Name="LbFinalProblems" MaxHeight="160" Margin="0,10,0,0" FontFamily="Consolas" FontSize="12"/>
+          </StackPanel>
+        </Border>
         <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
-          <Button x:Name="BtnOpenDest" Content="Open backup folder" Margin="0,0,12,0"/>
+          <Button x:Name="BtnOpenDest" Content="Open backup folder" Background="#0284C7" Margin="0,0,12,0"/>
           <Button x:Name="BtnOpenReport" Content="Open report"/>
         </StackPanel>
       </StackPanel>
@@ -709,12 +1005,23 @@ function Show-NNStep {
     param([int]$n)
     $script:NNCtx.Step = $n
     $ui = $script:NNCtx.UI
+    $labels = @('Drives', 'Job name', 'Selection', 'Copy', 'Done')
     for ($i = 1; $i -le 5; $i++) {
+        $tb = $ui["RailStep$i"]
         $ui["PanelStep$i"].Visibility = 'Collapsed'
-        $ui["RailStep$i"].Foreground = '#94A3B8'
-        $ui["RailStep$i"].FontWeight = 'Normal'
+        $tb.Background = 'Transparent'
+        $tb.FontWeight = 'Normal'
+        if ($i -lt $n) {
+            # completed step: checkmark, quiet green
+            $tb.Text = [string][char]0x2713 + '   ' + $labels[$i - 1]
+            $tb.Foreground = '#4ADE80'
+        } else {
+            $tb.Text = ('{0}   {1}' -f $i, $labels[$i - 1])
+            $tb.Foreground = '#94A3B8'
+        }
     }
     $ui["PanelStep$n"].Visibility = 'Visible'
+    $ui["RailStep$n"].Background = '#13253D'
     $ui["RailStep$n"].Foreground = '#38BDF8'
     $ui["RailStep$n"].FontWeight = 'Bold'
     $ui.BtnBack.Visibility = 'Hidden'

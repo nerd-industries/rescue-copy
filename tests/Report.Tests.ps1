@@ -24,4 +24,18 @@ Describe 'New-NNHtmlReport' {
         $path = New-NNHtmlReport -Summary @{ OK = 1 } -Problems @('READ-FAIL(x<y&z)  C:\f.txt') -JobName 'j' -Bytes 10 -OutPath $script:Out
         (Get-Content -Raw $script:Out) | Should -Match 'x&lt;y&amp;z'
     }
+    It 'is a print-first white document with the embedded logo and a page-broken appendix' {
+        $null = New-NNHtmlReport -Summary @{ 'OK' = 3; 'CLOUD-ONLY' = 1 } -Problems @('OPEN-FAIL(err=2)  C:\x.txt') -JobName 'j2' -Bytes 123456789 -OutPath $script:Out
+        $html = Get-Content -Raw $script:Out
+        $html | Should -Match 'data:image/png;base64,'
+        $html | Should -Match '@media print'
+        $html | Should -Match 'page-break-before'
+        $html | Should -Not -Match 'background:#0f172a'
+    }
+    It 'pairs plain-language labels with the technical code' {
+        $html = Get-Content -Raw $script:Out
+        $html | Should -Match 'Copied and verified'
+        $html | Should -Match 'Stored only in your cloud account'
+        $html | Should -Match 'Total files processed'
+    }
 }
