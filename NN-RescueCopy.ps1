@@ -204,6 +204,78 @@ function Get-NNSourceHostname {
 }
 #endregion
 
+#region Raw copy engine
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class RawFileNative {
+    [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+    public static extern SafeFileHandle CreateFileW(string name, uint access, uint share,
+        IntPtr sec, uint disposition, uint flags, IntPtr template);
+}
+'@ -ErrorAction SilentlyContinue
+
+# Decimal constants: PS5.1 parses large hex literals as negative int32
+$NNGenericRead    = [uint32]2147483648   # 0x80000000
+$NNShareAll       = [uint32]7            # READ | WRITE | DELETE
+$NNOpenExisting   = [uint32]3
+$NNRawFlags       = [uint32]35651584     # FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT
+$NNCloudOnlyAttrs = 4198400              # FILE_ATTRIBUTE_OFFLINE (0x1000) | RECALL_ON_DATA_ACCESS (0x400000)
+
+function Open-NNSourceStream {
+    param([string]$Path)
+    if (-not $NNIsWindows) { return [IO.File]::OpenRead($Path) }   # test seam: prod is Windows-only
+    $h = [RawFileNative]::CreateFileW((ConvertTo-NNLongPath $Path), $NNGenericRead, $NNShareAll,
+        [IntPtr]::Zero, $NNOpenExisting, $NNRawFlags, [IntPtr]::Zero)
+    if ($h.IsInvalid) {
+        throw (New-Object ComponentModel.Win32Exception ([Runtime.InteropServices.Marshal]::GetLastWin32Error()))
+    }
+    return (New-Object IO.FileStream ($h, [IO.FileAccess]::Read))
+}
+
+function Test-NNCloudOnly {
+    param([IO.FileInfo]$File)
+    return ((([int]$File.Attributes) -band $NNCloudOnlyAttrs) -ne 0)
+}
+
+function Copy-NNFile {
+    param([IO.FileInfo]$Src, [string]$DestPath, [bool]$Force, [byte[]]$Buffer)
+    if (Test-NNCloudOnly $Src) { return 'CLOUD-ONLY' }
+    # Long-path-safe destination (>260 chars); no-op off Windows (test seam)
+    if ($NNIsWindows) { $DestPath = ConvertTo-NNLongPath $DestPath }
+    $dstInfo = New-Object IO.FileInfo ($DestPath)
+    if (-not $Force -and $dstInfo.Exists -and $dstInfo.Length -eq $Src.Length) { return 'SKIP-EXISTS' }
+
+    $in = $null
+    try { $in = Open-NNSourceStream $Src.FullName }
+    catch {
+        $code = $_.Exception.Message
+        if ($_.Exception -is [ComponentModel.Win32Exception]) { $code = 'err=' + $_.Exception.NativeErrorCode }
+        if ($_.Exception.InnerException -is [ComponentModel.Win32Exception]) { $code = 'err=' + $_.Exception.InnerException.NativeErrorCode }
+        if ($_.Exception -is [IO.FileNotFoundException] -or $_.Exception -is [IO.DirectoryNotFoundException]) { $code = 'err=2' }
+        return "OPEN-FAIL($code)"
+    }
+    $out = $null
+    try {
+        $out = [IO.File]::Create($DestPath)
+        while (($n = $in.Read($Buffer, 0, $Buffer.Length)) -gt 0) { $out.Write($Buffer, 0, $n) }
+    } catch {
+        return "READ-FAIL($($_.Exception.Message))"
+    } finally {
+        if ($in)  { $in.Dispose() }
+        if ($out) { $out.Dispose() }
+    }
+    $dstInfo.Refresh()
+    if ($dstInfo.Length -ne $Src.Length) { return "SIZE-MISMATCH($($dstInfo.Length)/$($Src.Length))" }
+    try {
+        $dstInfo.CreationTimeUtc  = $Src.CreationTimeUtc
+        $dstInfo.LastWriteTimeUtc = $Src.LastWriteTimeUtc
+    } catch { }
+    return 'OK'
+}
+#endregion
+
 #region Entry stub (replaced in Task 10)
 function Start-NNRescue {
     Write-Host 'NN Rescue Copy: GUI not implemented yet.' -ForegroundColor Yellow
