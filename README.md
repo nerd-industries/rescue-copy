@@ -11,13 +11,16 @@ what to copy, go. Read-only on the source drive.
 ## What it does
 
 - Copies every user's visible profile folders (Desktop, Documents, Pictures,
-  Downloads, Videos, Music, Favorites, OneDrive*) to
-  `<Backup>:\NN-Rescue\<JobName>\Users\<user>\...`
+  Downloads, Videos, Music, Favorites, OneDrive*) **plus any custom folders
+  the user created at their profile root** (legacy junctions and AppData
+  excluded) to `<Backup>:\NN-Rescue\<JobName>\Users\<user>\...`
 - **Copies OneDrive/Dropbox cloud-reparse files** that robocopy/xcopy/Explorer
   fail on with ERROR 1920 (raw `CreateFileW` open with
   `FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS` — the
   Copy-RawFile technique from the 2026-08-12 Tom Scott recovery)
-- Detects true cloud-only placeholders (no local data), skips and reports them
+- Cloud-only placeholders are **downloaded through OneDrive when the machine
+  is live and signed in** (normal open lets `cldflt.sys` hydrate them); only
+  when that's impossible (slaved drive) are they skipped and reported
 - Optional **Include key AppData**: Chrome/Edge/Firefox profiles, Outlook
   PST/OST, Sticky Notes, Windows Mail → `Users\<user>\AppData-Rescue\...`
 - Scans the drive root for stranded data (non-OS root folders, Public

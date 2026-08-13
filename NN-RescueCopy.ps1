@@ -21,6 +21,9 @@ $NNOsExcludeRoot = @('Windows','Program Files','Program Files (x86)','ProgramDat
     'Intel','AMD','NVIDIA','Drivers','MSOCache','inetpub','Documents and Settings')
 $NNProfileExclude = @('Default','Default User','Public','All Users','defaultuser0','WDAGUtilityAccount')
 $NNVisibleFolders = @('Desktop','Documents','Pictures','Downloads','Videos','Music','Favorites')
+# Profile-root folders never offered as targets (AppData is opt-in via its own toggle;
+# legacy junctions like 'Application Data' are excluded by their reparse attribute instead)
+$NNProfileRootSkip = @('AppData')
 # Each def: Label shown in GUI, Folder = destination folder name under AppData-Rescue, Segs = path under the profile dir
 $NNAppDataDefs = @(
     @{ Label = 'Chrome (bookmarks, passwords, profiles)'; Folder = 'Chrome';        Segs = @('AppData','Local','Google','Chrome','User Data') }
@@ -140,6 +143,15 @@ function Get-NNProfileTargets {
     }
     foreach ($od in @(Get-ChildItem -LiteralPath $ProfileDir.FullName -Directory -Force -Filter 'OneDrive*' -ErrorAction SilentlyContinue)) {
         $out += New-NNTarget 'Profile' $u $od.Name $od.FullName (Join-NNParts @('Users', $u, $od.Name)) $true
+    }
+    # Anything else the user created at the profile root is data too. Skip what is already
+    # targeted, AppData (its own toggle), and legacy junction points (reparse attribute).
+    foreach ($d in @(Get-ChildItem -LiteralPath $ProfileDir.FullName -Directory -Force -ErrorAction SilentlyContinue)) {
+        if ($NNVisibleFolders -contains $d.Name) { continue }
+        if ($NNProfileRootSkip -contains $d.Name) { continue }
+        if ($d.Name -like 'OneDrive*') { continue }
+        if (($d.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+        $out += New-NNTarget 'Profile' $u $d.Name $d.FullName (Join-NNParts @('Users', $u, $d.Name)) $true
     }
     $out
 }
@@ -273,22 +285,40 @@ function Test-NNCloudOnly {
     return ((([int]$File.Attributes) -band $NNCloudOnlyAttrs) -ne 0)
 }
 
+function Open-NNHydratingStream {
+    param([string]$Path)
+    # NORMAL open, no FILE_FLAG_OPEN_REPARSE_POINT: on a live machine the Cloud Files
+    # driver hydrates the placeholder (OneDrive downloads it) as we read. On a slaved
+    # drive this open fails and the caller reports CLOUD-ONLY.
+    if (-not $NNIsWindows) { return [IO.File]::OpenRead($Path) }   # test seam
+    $h = [RawFileNative]::CreateFileW((ConvertTo-NNLongPath $Path), $NNGenericRead, $NNShareAll,
+        [IntPtr]::Zero, $NNOpenExisting, [uint32]33554432, [IntPtr]::Zero)   # FILE_FLAG_BACKUP_SEMANTICS only
+    if ($h.IsInvalid) {
+        throw (New-Object ComponentModel.Win32Exception ([Runtime.InteropServices.Marshal]::GetLastWin32Error()))
+    }
+    return (New-Object IO.FileStream ($h, [IO.FileAccess]::Read))
+}
+
 function Copy-NNFile {
     param([IO.FileInfo]$Src, [string]$DestPath, [bool]$Force, [byte[]]$Buffer)
-    if (Test-NNCloudOnly $Src) { return 'CLOUD-ONLY' }
     # Long-path-safe destination (>260 chars); no-op off Windows (test seam)
     if ($NNIsWindows) { $DestPath = ConvertTo-NNLongPath $DestPath }
     $dstInfo = New-Object IO.FileInfo ($DestPath)
     if (-not $Force -and $dstInfo.Exists -and $dstInfo.Length -eq $Src.Length) { return 'SKIP-EXISTS' }
 
     $in = $null
-    try { $in = Open-NNSourceStream $Src.FullName }
-    catch {
-        $code = 'err=' + ($_.Exception.HResult -band 0xFFFF)
-        if ($_.Exception -is [ComponentModel.Win32Exception]) { $code = 'err=' + $_.Exception.NativeErrorCode }
-        if ($_.Exception -is [IO.FileNotFoundException] -or $_.Exception -is [IO.DirectoryNotFoundException]) { $code = 'err=2' }
-        if ($_.Exception.InnerException -is [IO.FileNotFoundException] -or $_.Exception.InnerException -is [IO.DirectoryNotFoundException]) { $code = 'err=2' }
-        return "OPEN-FAIL($code)"
+    if (Test-NNCloudOnly $Src) {
+        # No local data: let OneDrive fetch it if this machine can; otherwise it stays cloud-only.
+        try { $in = Open-NNHydratingStream $Src.FullName } catch { return 'CLOUD-ONLY' }
+    } else {
+        try { $in = Open-NNSourceStream $Src.FullName }
+        catch {
+            $code = 'err=' + ($_.Exception.HResult -band 0xFFFF)
+            if ($_.Exception -is [ComponentModel.Win32Exception]) { $code = 'err=' + $_.Exception.NativeErrorCode }
+            if ($_.Exception -is [IO.FileNotFoundException] -or $_.Exception -is [IO.DirectoryNotFoundException]) { $code = 'err=2' }
+            if ($_.Exception.InnerException -is [IO.FileNotFoundException] -or $_.Exception.InnerException -is [IO.DirectoryNotFoundException]) { $code = 'err=2' }
+            return "OPEN-FAIL($code)"
+        }
     }
     $out = $null
     try {
@@ -531,7 +561,7 @@ function New-NNHtmlReport {
     if ($cloud -gt 0) {
         $cloudHtml = ('<div class="callout"><div class="ic">&#9729;</div><div>' +
             '<h3>Some files still live in your cloud account</h3>' +
-            '<p>{0} file(s) were stored online-only by OneDrive or Dropbox, so they were not on the drive itself. ' +
+            '<p>{0} file(s) are stored online-only by OneDrive or Dropbox and could not be downloaded during this rescue. ' +
             'To get them back, sign in to the cloud account on the repaired or replacement computer and they will download automatically.</p>' +
             '</div></div>') -f $cloud
     }
@@ -1041,7 +1071,7 @@ function Start-NNBackground {
     foreach ($fn in @(Get-ChildItem function: | Where-Object { $_.Name -like '*-NN*' })) {
         $iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry ($fn.Name, $fn.Definition)))
     }
-    foreach ($vn in @('NNIsWindows','NNOsExcludeRoot','NNProfileExclude','NNVisibleFolders','NNAppDataDefs',
+    foreach ($vn in @('NNIsWindows','NNOsExcludeRoot','NNProfileExclude','NNVisibleFolders','NNProfileRootSkip','NNAppDataDefs',
                       'NNGenericRead','NNShareAll','NNOpenExisting','NNRawFlags','NNCloudOnlyAttrs')) {
         $v = Get-Variable -Name $vn -ErrorAction SilentlyContinue
         if ($v) {

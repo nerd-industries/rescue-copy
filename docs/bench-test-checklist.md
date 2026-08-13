@@ -30,7 +30,11 @@ ideally a second drive with a Windows install + OneDrive data as "customer".
 - [ ] Pause/Resume works; Cancel stops within a file or two
 - [ ] OneDrive reparse files copy OK on a machine WITHOUT cldflt running
       (slave the drive, or test in a VM — this is the core feature)
-- [ ] Cloud-only placeholders counted as CLOUD-ONLY, not errors
+- [ ] On a LIVE machine signed into OneDrive: cloud-only placeholders download
+      during the copy (OK), not skipped
+- [ ] On a slaved drive: cloud-only placeholders counted as CLOUD-ONLY, not errors
+- [ ] Custom folders at the profile root (e.g. C:\Users\x\my stuff) appear in
+      the selection tree, checked by default; 'Application Data' junction does not
 - [ ] `_RescueLog.csv` grows during the copy
 
 ## Step 5 — Done

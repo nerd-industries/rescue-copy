@@ -37,6 +37,20 @@ Describe 'Copy-NNFile' {
         $dst = Join-Path $script:Dir 'out1.bin'
         Copy-NNFile -Src (Get-Item $script:SrcFile) -DestPath $dst -Force $true -Buffer $script:Buf | Should -Be 'OK'
     }
+    It 'hydrates cloud-only files through a normal open when the cloud driver serves them' {
+        Mock Test-NNCloudOnly { $true }
+        Mock Open-NNHydratingStream { [IO.File]::OpenRead($script:SrcFile) }
+        $dst = Join-Path $script:Dir 'cloud1.bin'
+        Copy-NNFile -Src (Get-Item $script:SrcFile) -DestPath $dst -Force $false -Buffer $script:Buf | Should -Be 'OK'
+        (Get-Item $dst).Length | Should -Be 300000
+    }
+    It 'reports CLOUD-ONLY when hydration is impossible (slaved drive, not signed in)' {
+        Mock Test-NNCloudOnly { $true }
+        Mock Open-NNHydratingStream { throw (New-Object IO.IOException 'no cloud filter driver') }
+        Copy-NNFile -Src (Get-Item $script:SrcFile) -DestPath (Join-Path $script:Dir 'cloud2.bin') -Force $false -Buffer $script:Buf |
+            Should -Be 'CLOUD-ONLY'
+        Test-Path (Join-Path $script:Dir 'cloud2.bin') | Should -BeFalse
+    }
     It 'reports OPEN-FAIL for an unreadable source' {
         $gone = Join-Path $script:Dir 'gone.bin'
         Set-Content -Path $gone -Value 'x'

@@ -11,10 +11,13 @@ BeforeAll {
         @('Users','alice','Pictures'),
         @('Users','Default','Desktop'), @('Users','Public','Documents'), @('Users','Public','Music'),
         @('Windows','System32'), @('Program Files','App'), @('ProgramData','Intuit','QB'),
-        @('Scans'), @('QuickBooksBackups')
+        @('Scans'), @('QuickBooksBackups'),
+        @('Users','bob','a copy'), @('Users','bob','Saved Games')
     )) { $null = New-Item -ItemType Directory -Force -Path (Join-NNParts (@($script:Root) + $p)) }
     Set-Content -Path (Join-NNParts @($script:Root,'Users','bob','Desktop','a.txt')) -Value ('x' * 100)
     Set-Content -Path (Join-NNParts @($script:Root,'Users','bob','Desktop','b.txt')) -Value ('y' * 50)
+    # legacy profile junction: must be skipped (reparse point)
+    $null = New-Item -ItemType SymbolicLink -Path (Join-NNParts @($script:Root,'Users','bob','Application Data')) -Target (Join-NNParts @($script:Root,'Users','bob','Desktop'))
 }
 
 AfterAll { Remove-Item -Recurse -Force $script:Root -ErrorAction SilentlyContinue }
@@ -28,13 +31,23 @@ Describe 'Get-NNUserProfileDirs' {
 
 Describe 'Get-NNProfileTargets' {
     BeforeAll { $script:BobT = Get-NNProfileTargets (Get-Item (Join-NNParts @($script:Root,'Users','bob'))) }
-    It 'finds existing visible folders and OneDrive dirs' {
-        ($script:BobT | ForEach-Object Label | Sort-Object) | Should -Be @('Desktop','Documents','OneDrive - Contoso')
+    It 'finds visible folders, OneDrive dirs, and custom user-made folders' {
+        ($script:BobT | ForEach-Object Label | Sort-Object) |
+            Should -Be @('a copy','Desktop','Documents','OneDrive - Contoso','Saved Games')
     }
     It 'is selected by default with the right DestRel' {
         $d = $script:BobT | Where-Object Label -eq 'Desktop'
         $d.Selected | Should -BeTrue
         $d.DestRel | Should -Be (Join-NNParts @('Users','bob','Desktop'))
+    }
+    It 'custom folders are selected by default and routed under the user' {
+        $cf = $script:BobT | Where-Object Label -eq 'a copy'
+        $cf.Selected | Should -BeTrue
+        $cf.DestRel | Should -Be (Join-NNParts @('Users','bob','a copy'))
+    }
+    It 'never includes AppData or legacy junctions' {
+        ($script:BobT | ForEach-Object Label) | Should -Not -Contain 'AppData'
+        ($script:BobT | ForEach-Object Label) | Should -Not -Contain 'Application Data'
     }
 }
 
