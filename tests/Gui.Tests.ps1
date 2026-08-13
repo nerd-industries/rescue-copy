@@ -6,6 +6,7 @@ BeforeAll {
     foreach ($p in @(
         @('Users','bob','Desktop'),
         @('Users','bob','AppData','Local','Google','Chrome','User Data'),
+        @('Users','Public','Documents'),
         @('Windows'), @('Scans')
     )) { $null = New-Item -ItemType Directory -Force -Path (Join-NNParts (@($script:Root) + $p)) }
     Set-Content -Path (Join-NNParts @($script:Root,'Users','bob','Desktop','f.txt')) -Value 'data'
@@ -14,12 +15,15 @@ BeforeAll {
 AfterAll { Remove-Item -Recurse -Force $script:Root -ErrorAction SilentlyContinue }
 
 Describe 'Build-NNSelectionModel' {
-    It 'groups per user without appdata by default' {
+    It 'groups per user, splits Public folders from drive extras' {
         $m = Build-NNSelectionModel $script:Root $false
-        @($m).Count | Should -Be 2
+        @($m).Count | Should -Be 3
         $m[0].Header | Should -Be 'User: bob'
         ($m[0].Items | ForEach-Object Category) | Should -Not -Contain 'AppData'
-        $m[1].Header | Should -Be 'Extras found on drive'
+        $m[1].Header | Should -Be 'Public folders (shared by all users)'
+        ($m[1].Items | ForEach-Object Label) | Should -Contain 'Documents'
+        $m[2].Header | Should -Be 'Extras found on drive'
+        ($m[2].Items | ForEach-Object Label) | Should -Not -Contain 'Documents'
     }
     It 'adds appdata targets when requested' {
         $m = Build-NNSelectionModel $script:Root $true
@@ -31,9 +35,10 @@ Describe 'Get-NNSelectedBytes' {
     It 'sums only selected, sized items' {
         $m = Build-NNSelectionModel $script:Root $false
         foreach ($g in $m) { foreach ($i in $g.Items) { $i.SizeBytes = 100 } }
-        $m[1].Items[0].Selected = $false
+        foreach ($i in $m[2].Items) { $i.Selected = $false }
         $total = Get-NNSelectedBytes $m
-        $total | Should -Be 100   # bob/Desktop selected; the single extra (Scans) deselected
+        # bob/Desktop (selected) + Public Documents (selected by default); Scans extra deselected
+        $total | Should -Be 200
     }
 }
 

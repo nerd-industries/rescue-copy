@@ -596,7 +596,10 @@ function Build-NNSelectionModel {
         if ($items.Count -gt 0) { $groups += @{ Header = "User: $($pd.Name)"; Items = $items } }
     }
     $extras = @(Get-NNExtraTargets $SourceRoot)
-    if ($extras.Count -gt 0) { $groups += @{ Header = 'Extras found on drive'; Items = $extras } }
+    $public = @($extras | Where-Object { $_.Category -eq 'Public' })
+    $other  = @($extras | Where-Object { $_.Category -ne 'Public' })
+    if ($public.Count -gt 0) { $groups += @{ Header = 'Public folders (shared by all users)'; Items = $public } }
+    if ($other.Count -gt 0)  { $groups += @{ Header = 'Extras found on drive'; Items = $other } }
     return ,$groups
 }
 
@@ -1085,7 +1088,20 @@ function Add-NNTreeGroup {
         $cb = New-Object System.Windows.Controls.CheckBox
         $sz = ''
         if ($null -ne $item.SizeBytes) { $sz = '  (' + (Format-NNBytes $item.SizeBytes) + ')' }
-        $cb.Content = $item.Label + $sz
+        # two-line content: label + size, full source path in small mono underneath
+        $stack = New-Object System.Windows.Controls.StackPanel
+        $line1 = New-Object System.Windows.Controls.TextBlock
+        $line1.Text = $item.Label + $sz
+        $line2 = New-Object System.Windows.Controls.TextBlock
+        $line2.Text = $item.SourcePath
+        $line2.FontFamily = 'Consolas'
+        $line2.FontSize = 10.5
+        $line2.FontWeight = 'Normal'
+        $line2.Foreground = '#64748B'
+        $line2.Margin = '0,1,0,0'
+        $null = $stack.Children.Add($line1)
+        $null = $stack.Children.Add($line2)
+        $cb.Content = $stack
         $cb.IsChecked = $item.Selected
         $cb.Tag = $item
         $cb.Add_Checked({ param($s, $e) $s.Tag.Selected = $true;  Update-NNTotals })
