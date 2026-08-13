@@ -87,6 +87,88 @@ function New-NNTarget {
 }
 #endregion
 
+#region Scanner
+function Get-NNUserProfileDirs {
+    param([string]$SourceRoot)
+    $users = Join-Path $SourceRoot 'Users'
+    if (-not (Test-Path -LiteralPath $users)) { return @() }
+    @(Get-ChildItem -LiteralPath $users -Directory -Force -ErrorAction SilentlyContinue |
+        Where-Object { $NNProfileExclude -notcontains $_.Name })
+}
+
+function Get-NNProfileTargets {
+    param([IO.DirectoryInfo]$ProfileDir)
+    $u = $ProfileDir.Name
+    $out = @()
+    foreach ($n in $NNVisibleFolders) {
+        $p = Join-Path $ProfileDir.FullName $n
+        if (Test-Path -LiteralPath $p) {
+            $out += New-NNTarget 'Profile' $u $n $p (Join-NNParts @('Users', $u, $n)) $true
+        }
+    }
+    foreach ($od in @(Get-ChildItem -LiteralPath $ProfileDir.FullName -Directory -Force -Filter 'OneDrive*' -ErrorAction SilentlyContinue)) {
+        $out += New-NNTarget 'Profile' $u $od.Name $od.FullName (Join-NNParts @('Users', $u, $od.Name)) $true
+    }
+    $out
+}
+
+function Get-NNAppDataTargets {
+    param([IO.DirectoryInfo]$ProfileDir)
+    $u = $ProfileDir.Name
+    $out = @()
+    foreach ($d in $NNAppDataDefs) {
+        $p = Join-NNParts (@($ProfileDir.FullName) + $d.Segs)
+        if (Test-Path -LiteralPath $p) {
+            $out += New-NNTarget 'AppData' $u $d.Label $p (Join-NNParts @('Users', $u, 'AppData-Rescue', $d.Folder)) $true
+        }
+    }
+    $pk = Join-NNParts @($ProfileDir.FullName, 'AppData', 'Local', 'Packages')
+    if (Test-Path -LiteralPath $pk) {
+        foreach ($sn in @(Get-ChildItem -LiteralPath $pk -Directory -Filter 'Microsoft.MicrosoftStickyNotes_*' -ErrorAction SilentlyContinue)) {
+            $ls = Join-Path $sn.FullName 'LocalState'
+            if (Test-Path -LiteralPath $ls) {
+                $out += New-NNTarget 'AppData' $u 'Sticky Notes' $ls (Join-NNParts @('Users', $u, 'AppData-Rescue', 'StickyNotes')) $true
+            }
+        }
+    }
+    $out
+}
+
+function Get-NNExtraTargets {
+    param([string]$SourceRoot)
+    $out = @()
+    foreach ($d in @(Get-ChildItem -LiteralPath $SourceRoot -Directory -Force -ErrorAction SilentlyContinue)) {
+        if ($NNOsExcludeRoot -notcontains $d.Name) {
+            $out += New-NNTarget 'Extra' $null $d.Name $d.FullName (Join-NNParts @('Extras', $d.Name)) $false
+        }
+    }
+    $pub = Join-NNParts @($SourceRoot, 'Users', 'Public')
+    foreach ($n in @('Documents', 'Desktop', 'Pictures', 'Videos', 'Music', 'Downloads')) {
+        $p = Join-Path $pub $n
+        if (Test-Path -LiteralPath $p) {
+            $sel = ($n -eq 'Documents') -or ($n -eq 'Desktop')
+            $out += New-NNTarget 'Public' 'Public' $n $p (Join-NNParts @('Public', $n)) $sel
+        }
+    }
+    foreach ($k in @(@('ProgramData', 'Intuit'), @('ProgramData', 'Sage'))) {
+        $p = Join-NNParts (@($SourceRoot) + $k)
+        if (Test-Path -LiteralPath $p) {
+            $out += New-NNTarget 'Extra' $null ($k -join ' ') $p (Join-NNParts @('Extras', ($k -join '-'))) $false
+        }
+    }
+    $out
+}
+
+function Get-NNFolderSize {
+    param([string]$Path)
+    $sum = [long]0
+    foreach ($f in @(Get-ChildItem -LiteralPath $Path -Recurse -Force -File -ErrorAction SilentlyContinue)) {
+        $sum += $f.Length
+    }
+    return $sum
+}
+#endregion
+
 #region Entry stub (replaced in Task 10)
 function Start-NNRescue {
     Write-Host 'NN Rescue Copy: GUI not implemented yet.' -ForegroundColor Yellow
