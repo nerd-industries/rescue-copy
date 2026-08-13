@@ -52,6 +52,36 @@ Describe 'Get-NNJobRoot' {
     }
 }
 
+Describe 'Test-NNJobHasData' {
+    BeforeAll {
+        $script:JD = Join-Path ([IO.Path]::GetTempPath()) ("nnjd-" + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $script:JD 'empty')
+        $null = New-Item -ItemType Directory -Force -Path (Join-NNParts @($script:JD, 'used', 'Users', 'bob'))
+        Set-Content -Path (Join-NNParts @($script:JD, 'used', 'Users', 'bob', 'f.txt')) -Value 'data'
+    }
+    AfterAll { Remove-Item -Recurse -Force $script:JD -ErrorAction SilentlyContinue }
+    It 'is false for a missing folder' { Test-NNJobHasData (Join-Path $script:JD 'nope') | Should -BeFalse }
+    It 'is false for an empty folder' { Test-NNJobHasData (Join-Path $script:JD 'empty') | Should -BeFalse }
+    It 'is true when any file exists beneath it' { Test-NNJobHasData (Join-Path $script:JD 'used') | Should -BeTrue }
+}
+
+Describe 'Get-NNAvailableJobName' {
+    BeforeAll {
+        $script:BR = Join-Path ([IO.Path]::GetTempPath()) ("nnav-" + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Force -Path (Join-NNParts @($script:BR, 'NN-Rescue', 'Tom Scott'))
+        Set-Content -Path (Join-NNParts @($script:BR, 'NN-Rescue', 'Tom Scott', 'x.txt')) -Value 'x'
+        $null = New-Item -ItemType Directory -Force -Path (Join-NNParts @($script:BR, 'NN-Rescue', 'Tom Scott (2)'))
+        Set-Content -Path (Join-NNParts @($script:BR, 'NN-Rescue', 'Tom Scott (2)', 'x.txt')) -Value 'x'
+    }
+    AfterAll { Remove-Item -Recurse -Force $script:BR -ErrorAction SilentlyContinue }
+    It 'skips names whose job folders already hold data' {
+        Get-NNAvailableJobName $script:BR 'Tom Scott' | Should -Be 'Tom Scott (3)'
+    }
+    It 'returns the name unchanged when it is free' {
+        Get-NNAvailableJobName $script:BR 'Fresh Customer' | Should -Be 'Fresh Customer'
+    }
+}
+
 Describe 'Format-NNBytes' {
     It 'formats GB' { Format-NNBytes 1610612736 | Should -Be '1.5 GB' }
     It 'formats MB' { Format-NNBytes 5242880 | Should -Be '5.0 MB' }

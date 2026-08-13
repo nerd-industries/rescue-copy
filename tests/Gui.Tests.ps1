@@ -37,6 +37,17 @@ Describe 'Get-NNSelectedBytes' {
     }
 }
 
+Describe 'Existing-data dialog XAML' {
+    It 'is valid XML with the controls the dialog wires' {
+        $doc = [xml]$NNExistingXaml
+        $doc.Window | Should -Not -BeNullOrEmpty
+        $names = $doc.SelectNodes('//*/@*') | Where-Object { $_.LocalName -eq 'Name' } | ForEach-Object Value
+        foreach ($n in @('DlgPath','DlgResume','DlgKeepBoth','DlgKeepBothHint','DlgStartOver','DlgCancel')) {
+            $names | Should -Contain $n
+        }
+    }
+}
+
 Describe 'XAML' {
     BeforeAll { $script:Doc = [xml]$NNXaml }
     It 'is valid XML' { $script:Doc.Window | Should -Not -BeNullOrEmpty }

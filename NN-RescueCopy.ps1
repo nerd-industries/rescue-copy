@@ -73,6 +73,29 @@ function Get-NNJobRoot {
     return Join-NNParts @($BackupRoot, 'NN-Rescue', (Get-NNSafeName $JobName))
 }
 
+function Test-NNJobHasData {
+    param([string]$JobRoot)
+    if (-not (Test-Path -LiteralPath $JobRoot)) { return $false }
+    try {
+        $e = [IO.Directory]::EnumerateFiles($JobRoot, '*', [IO.SearchOption]::AllDirectories).GetEnumerator()
+        return [bool]$e.MoveNext()
+    } catch {
+        return $false
+    }
+}
+
+function Get-NNAvailableJobName {
+    param([string]$BackupRoot, [string]$JobName)
+    $name = Get-NNSafeName $JobName
+    if (-not (Test-NNJobHasData (Get-NNJobRoot $BackupRoot $name))) { return $name }
+    $i = 2
+    while ($true) {
+        $candidate = ('{0} ({1})' -f $name, $i)
+        if (-not (Test-NNJobHasData (Get-NNJobRoot $BackupRoot $candidate))) { return $candidate }
+        $i++
+    }
+}
+
 function Format-NNBytes {
     param([long]$Bytes)
     if ($Bytes -ge 1TB) { return ('{0:N1} TB' -f ($Bytes / 1TB)) }
@@ -1186,6 +1209,83 @@ function Complete-NNJob {
     Show-NNStep 5
 }
 
+$NNExistingXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Existing backup found" Width="520" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" Background="#0F172A" Foreground="#E2E8F0"
+        FontFamily="Segoe UI" FontSize="13">
+  <Window.Resources>
+    <Style TargetType="Button">
+      <Setter Property="Background" Value="#233752"/>
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="Padding" Value="14,10"/>
+      <Setter Property="Margin" Value="0,5,0,0"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" CornerRadius="8" Background="{TemplateBinding Background}"
+                    BorderBrush="#334155" BorderThickness="1" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.85"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.7"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+  <StackPanel Margin="22,18,22,18">
+    <TextBlock Text="This job already has data on the backup drive" FontSize="16" FontWeight="SemiBold"/>
+    <TextBlock x:Name="DlgPath" FontFamily="Consolas" FontSize="12" Foreground="#4ADE80" TextWrapping="Wrap" Margin="0,8,0,14"/>
+    <Button x:Name="DlgResume" Background="#0284C7">
+      <StackPanel>
+        <TextBlock Text="Resume this job" FontWeight="Bold"/>
+        <TextBlock Text="Skip files already copied - only what is missing gets copied." FontSize="11" FontWeight="Normal" Foreground="#CBD5E1"/>
+      </StackPanel>
+    </Button>
+    <Button x:Name="DlgKeepBoth">
+      <StackPanel>
+        <TextBlock Text="Keep both" FontWeight="Bold"/>
+        <TextBlock x:Name="DlgKeepBothHint" Text="Leave the existing backup alone and start a new folder." FontSize="11" FontWeight="Normal" Foreground="#94A3B8"/>
+      </StackPanel>
+    </Button>
+    <Button x:Name="DlgStartOver">
+      <StackPanel>
+        <TextBlock Text="Start over" FontWeight="Bold"/>
+        <TextBlock Text="Re-copy everything into the same folder, replacing earlier copies. Nothing is deleted first." FontSize="11" FontWeight="Normal" Foreground="#94A3B8"/>
+      </StackPanel>
+    </Button>
+    <Button x:Name="DlgCancel" Content="Go back" HorizontalContentAlignment="Center" Background="#1E293B" Margin="0,12,0,0"/>
+  </StackPanel>
+</Window>
+'@
+
+function Show-NNExistingDataDialog {
+    param([string]$JobRoot, [string]$NextName)
+    $dlg = [Windows.Markup.XamlReader]::Parse($NNExistingXaml)
+    $dlg.Owner = $script:NNCtx.Win
+    $dlg.FindName('DlgPath').Text = $JobRoot
+    $dlg.FindName('DlgKeepBothHint').Text = ('Leave the existing backup alone and back up into "{0}" instead.' -f $NextName)
+    $script:NNDialogChoice = $null
+    $dlg.FindName('DlgResume').Add_Click({ $script:NNDialogChoice = 'resume'; $script:NNDialog.Close() })
+    $dlg.FindName('DlgKeepBoth').Add_Click({ $script:NNDialogChoice = 'keepboth'; $script:NNDialog.Close() })
+    $dlg.FindName('DlgStartOver').Add_Click({ $script:NNDialogChoice = 'startover'; $script:NNDialog.Close() })
+    $dlg.FindName('DlgCancel').Add_Click({ $script:NNDialogChoice = $null; $script:NNDialog.Close() })
+    $script:NNDialog = $dlg
+    $null = $dlg.ShowDialog()
+    return $script:NNDialogChoice
+}
+
 function Start-NNRescueGui {
     $win = [Windows.Markup.XamlReader]::Parse($NNXaml)
     $ui = @{}
@@ -1275,6 +1375,17 @@ function Start-NNRescueGui {
             }
             $c.JobName = $name
             $c.JobRoot = Get-NNJobRoot $c.BackupRoot $name
+            if (Test-NNJobHasData $c.JobRoot) {
+                $nextName = Get-NNAvailableJobName $c.BackupRoot $name
+                $choice = Show-NNExistingDataDialog -JobRoot $c.JobRoot -NextName $nextName
+                if (-not $choice) { return }
+                if ($choice -eq 'keepboth') {
+                    $c.JobName = $nextName
+                    $c.JobRoot = Get-NNJobRoot $c.BackupRoot $nextName
+                    $c.UI.TxtJobName.Text = $nextName
+                }
+                if ($choice -eq 'startover') { $c.UI.ChkForce.IsChecked = $true }
+            }
             Show-NNStep 3
             Start-NNScan
         }
