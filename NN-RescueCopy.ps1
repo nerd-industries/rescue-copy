@@ -327,7 +327,7 @@ function Invoke-NNCopyJob {
         $csvPath = Join-Path $JobRoot '_RescueLog.csv'
         $newCsv = -not (Test-Path -LiteralPath $csvPath)
         $csv = New-Object IO.StreamWriter ($csvPath, $true, [Text.Encoding]::UTF8)
-        if ($newCsv) { $csv.WriteLine('Time,Result,Bytes,Source,Destination') }
+        if ($newCsv) { $csv.WriteLine('Time,Result,Size,Source,Destination') }
 
         try {
             foreach ($item in $files) {
@@ -348,7 +348,7 @@ function Invoke-NNCopyJob {
                 if ($r -ne 'OK' -and $r -ne 'SKIP-EXISTS') { $problems.Add("$r  $($item.File.FullName)") }
                 $done += $item.File.Length
                 $i++
-                $csv.WriteLine(('{0:o},"{1}",{2},"{3}","{4}"' -f [DateTime]::UtcNow, $r.Replace('"', '""'), $item.File.Length,
+                $csv.WriteLine(('{0:o},"{1}",{2},"{3}","{4}"' -f [DateTime]::UtcNow, $r.Replace('"', '""'), (Format-NNBytes $item.File.Length),
                     $item.File.FullName.Replace('"', '""'), $item.Dest.Replace('"', '""')))
                 $Queue.Enqueue([pscustomobject]@{ Type = 'file'; Result = $r; Path = $item.File.FullName; BytesDone = $done; Index = $i })
 

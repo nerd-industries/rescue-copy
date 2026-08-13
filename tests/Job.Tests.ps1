@@ -38,8 +38,12 @@ Describe 'Invoke-NNCopyJob' {
     }
     It 'streams a CSV log with header' {
         $csv = Get-Content (Join-Path $script:JobRoot '_RescueLog.csv')
-        $csv[0] | Should -Be 'Time,Result,Bytes,Source,Destination'
+        $csv[0] | Should -Be 'Time,Result,Size,Source,Destination'
         $csv.Count | Should -Be 3
+    }
+    It 'writes human-readable sizes in the CSV' {
+        $csv = Get-Content (Join-Path $script:JobRoot '_RescueLog.csv')
+        foreach ($line in $csv[1..($csv.Count - 1)]) { $line | Should -Match ',\d+(\.\d+)? (B|KB|MB|GB|TB),' }
     }
     It 'is incremental on re-run' {
         $q2 = New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'
@@ -59,7 +63,7 @@ Describe 'Invoke-NNCopyJob' {
     }
     It 'quotes the Result field in the CSV log so embedded commas do not break rows' {
         $csv = Get-Content (Join-Path $script:JobRoot '_RescueLog.csv')
-        foreach ($line in $csv[1..($csv.Count - 1)]) { $line | Should -Match '^\S+,"[^"]*",\d+,' }
+        foreach ($line in $csv[1..($csv.Count - 1)]) { $line | Should -Match '^\S+,"[^"]*",[^,]+,' }
     }
 }
 
@@ -78,7 +82,7 @@ Describe 'Invoke-NNCopyJob enumeration errors' {
 
         $q = New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'
         $ctl = [hashtable]::Synchronized(@{ Cancel = $false; Pause = $false })
-        Invoke-NNCopyJob -Targets @($t) -JobRoot (Join-Path $dir 'out') -Control $ctl -Queue $q -Force $false
+        Invoke-NNCopyJob -Targets @($t) -JobRoot (Join-Path $dir 'out') -Control $ctl -Queue $q -Force $false 2>$null
 
         $m = $null; $msgs = @()
         while ($q.TryDequeue([ref]$m)) { $msgs += $m }
