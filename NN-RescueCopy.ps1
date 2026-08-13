@@ -345,12 +345,27 @@ function Invoke-NNCopyJob {
     $done = [long]0
     $i = 0
     $lastDir = ''
+    $csv = $null
     try {
         $null = [IO.Directory]::CreateDirectory($JobRoot)
+        # The CSV is a log, never the payload: a locked or unwritable log must not stop the copy.
         $csvPath = Join-Path $JobRoot '_RescueLog.csv'
-        $newCsv = -not (Test-Path -LiteralPath $csvPath)
-        $csv = New-Object IO.StreamWriter ($csvPath, $true, [Text.Encoding]::UTF8)
-        if ($newCsv) { $csv.WriteLine('Time,Result,Size,Source,Destination') }
+        try {
+            $newCsv = -not (Test-Path -LiteralPath $csvPath)
+            $csv = New-Object IO.StreamWriter ($csvPath, $true, [Text.Encoding]::UTF8)
+            if ($newCsv) { $csv.WriteLine('Time,Result,Size,Source,Destination') }
+        } catch {
+            try {
+                $csvPath = Join-Path $JobRoot ('_RescueLog-{0:yyyyMMdd-HHmmss}.csv' -f [DateTime]::Now)
+                $csv = New-Object IO.StreamWriter ($csvPath, $true, [Text.Encoding]::UTF8)
+                $csv.WriteLine('Time,Result,Size,Source,Destination')
+                $problems.Add('LOG-NOTE(_RescueLog.csv is open in another program - logging to ' + (Split-Path -Leaf $csvPath) + ' instead)')
+            } catch {
+                $csv = $null
+                $problems.Add('LOG-FAIL(no CSV log could be opened - copying continues without one: ' + $_.Exception.Message + ')')
+            }
+        }
+        if ($csv) { $csv.AutoFlush = $true }
 
         try {
             foreach ($item in $files) {
@@ -371,8 +386,15 @@ function Invoke-NNCopyJob {
                 if ($r -ne 'OK' -and $r -ne 'SKIP-EXISTS') { $problems.Add("$r  $($item.File.FullName)") }
                 $done += $item.File.Length
                 $i++
-                $csv.WriteLine(('{0:o},"{1}",{2},"{3}","{4}"' -f [DateTime]::UtcNow, $r.Replace('"', '""'), (Format-NNBytes $item.File.Length),
-                    $item.File.FullName.Replace('"', '""'), $item.Dest.Replace('"', '""')))
+                if ($csv) {
+                    try {
+                        $csv.WriteLine(('{0:o},"{1}",{2},"{3}","{4}"' -f [DateTime]::UtcNow, $r.Replace('"', '""'), (Format-NNBytes $item.File.Length),
+                            $item.File.FullName.Replace('"', '""'), $item.Dest.Replace('"', '""')))
+                    } catch {
+                        $csv = $null
+                        $problems.Add('LOG-FAIL(log write failed - copying continues without a log: ' + $_.Exception.Message + ')')
+                    }
+                }
                 $Queue.Enqueue([pscustomobject]@{ Type = 'file'; Result = $r; Path = $item.File.FullName; BytesDone = $done; Index = $i })
 
                 if ($r -like 'READ-FAIL*') {
@@ -385,7 +407,7 @@ function Invoke-NNCopyJob {
                 }
             }
         } finally {
-            $csv.Dispose()
+            if ($csv) { $csv.Dispose() }
         }
     } catch {
         $problems.Add('FATAL(' + $_.Exception.Message + ')')

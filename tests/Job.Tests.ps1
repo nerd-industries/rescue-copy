@@ -67,6 +67,40 @@ Describe 'Invoke-NNCopyJob' {
     }
 }
 
+Describe 'Invoke-NNCopyJob with a locked CSV log' {
+    It 'still copies every file when _RescueLog.csv is held open by another program' {
+        $dir = Join-Path ([IO.Path]::GetTempPath()) ("nnlock-" + [guid]::NewGuid().ToString('N'))
+        $src = Join-Path $dir 'src'
+        $null = New-Item -ItemType Directory -Force -Path $src
+        Set-Content -Path (Join-Path $src 'a.txt') -Value 'locked-log test'
+        $jobRoot = Join-Path $dir 'out'
+        $null = New-Item -ItemType Directory -Force -Path $jobRoot
+        $lockPath = Join-Path $jobRoot '_RescueLog.csv'
+        # simulate Excel holding the log open exclusively
+        $lock = [IO.File]::Open($lockPath, [IO.FileMode]::Create, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        try {
+            $t = New-NNTarget 'Extra' $null 'src' $src (Join-NNParts @('Extras', 'src')) $true
+            $q = New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'
+            $ctl = [hashtable]::Synchronized(@{ Cancel = $false; Pause = $false })
+            Invoke-NNCopyJob -Targets @($t) -JobRoot $jobRoot -Control $ctl -Queue $q -Force $true
+            $m = $null; $msgs = @()
+            while ($q.TryDequeue([ref]$m)) { $msgs += $m }
+            $done = $msgs | Where-Object Type -eq 'done'
+            $done.Summary['OK'] | Should -Be 1
+            Test-Path (Join-NNParts @($jobRoot, 'Extras', 'src', 'a.txt')) | Should -BeTrue
+            ($done.Problems -join ';') | Should -Not -Match 'FATAL\('
+            ($done.Problems -join ';') | Should -Match 'LOG-'
+            # the fallback log captured the copy
+            $alt = @(Get-ChildItem -Path $jobRoot -Filter '_RescueLog-*.csv')
+            $alt.Count | Should -Be 1
+            (Get-Content $alt[0].FullName).Count | Should -Be 2
+        } finally {
+            $lock.Dispose()
+            Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 Describe 'Invoke-NNCopyJob enumeration errors' {
     It 'surfaces ENUM-FAIL problems collected from a partially-failing enumeration pass' {
         $dir = Join-Path ([IO.Path]::GetTempPath()) ("nnenum-" + [guid]::NewGuid().ToString('N'))
