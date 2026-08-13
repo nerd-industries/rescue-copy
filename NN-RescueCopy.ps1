@@ -343,6 +343,101 @@ function Invoke-NNCopyJob {
 }
 #endregion
 
+#region Verify
+function Get-NNFileHash {
+    param([string]$Path)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $s = Open-NNSourceStream $Path
+    try {
+        $buf = New-Object byte[] 1048576
+        while (($n = $s.Read($buf, 0, $buf.Length)) -gt 0) {
+            $null = $sha.TransformBlock($buf, 0, $n, $null, 0)
+        }
+        $null = $sha.TransformFinalBlock($buf, 0, 0)
+        return ([BitConverter]::ToString($sha.Hash) -replace '-', '')
+    } finally {
+        $s.Dispose()
+        $sha.Dispose()
+    }
+}
+
+function Invoke-NNVerifyPass {
+    param($Pairs, $Control, $Queue)
+    $mismatch = New-Object System.Collections.Generic.List[string]
+    $i = 0
+    foreach ($p in $Pairs) {
+        if ($Control.Cancel) { break }
+        try {
+            $a = Get-NNFileHash $p.Src
+            $b = Get-NNFileHash $p.Dst
+            if ($a -ne $b) { $mismatch.Add("HASH-MISMATCH  $($p.Src)") }
+        } catch {
+            $mismatch.Add("VERIFY-FAIL($($_.Exception.Message))  $($p.Src)")
+        }
+        $i++
+        $Queue.Enqueue([pscustomobject]@{ Type = 'verify'; Index = $i; Total = @($Pairs).Count })
+    }
+    $Queue.Enqueue([pscustomobject]@{ Type = 'verifydone'; Mismatches = $mismatch })
+    return $mismatch
+}
+#endregion
+
+#region Report
+function New-NNHtmlReport {
+    param([hashtable]$Summary, [string[]]$Problems, [string]$JobName, [long]$Bytes, [string]$OutPath)
+
+    function Encode-NNHtml { param([string]$s)
+        return $s.Replace('&', '&amp;').Replace('<', '&lt;').Replace('>', '&gt;').Replace('"', '&quot;')
+    }
+
+    $rows = ''
+    foreach ($k in ($Summary.Keys | Sort-Object)) {
+        $color = '#e2e8f0'
+        if ($k -eq 'OK') { $color = '#4ade80' }
+        elseif ($k -eq 'SKIP-EXISTS') { $color = '#94a3b8' }
+        elseif ($k -eq 'CLOUD-ONLY') { $color = '#fbbf24' }
+        else { $color = '#f87171' }
+        $rows += ('<tr><td style="color:{0}">{1}</td><td style="text-align:right">{2}</td></tr>' -f $color, (Encode-NNHtml $k), $Summary[$k])
+    }
+
+    $probHtml = ''
+    if (@($Problems).Count -gt 0) {
+        $items = ''
+        foreach ($p in $Problems) { $items += ('<li><code>{0}</code></li>' -f (Encode-NNHtml $p)) }
+        $probHtml = ('<h2>Files needing attention</h2><ul>{0}</ul>' -f $items)
+    }
+
+    $cloudHtml = ''
+    $cloudCount = 0
+    foreach ($k in $Summary.Keys) { if ($k -eq 'CLOUD-ONLY') { $cloudCount = $Summary[$k] } }
+    if ($cloudCount -gt 0) {
+        $cloudHtml = ('<div class="note"><strong>{0} cloud-only file(s) were skipped.</strong> ' +
+            'These files live only in the customer''s cloud account (OneDrive/Dropbox) - there is no local data on the drive. ' +
+            'To recover them, sign into the account on a working machine and let them download.</div>') -f $cloudCount
+    }
+
+    $html = @"
+<!doctype html><html><head><meta charset="utf-8"><title>NN Rescue Report - $(Encode-NNHtml $JobName)</title>
+<style>
+body{font-family:'Segoe UI',Arial,sans-serif;background:#0f172a;color:#e2e8f0;max-width:860px;margin:40px auto;padding:0 20px;line-height:1.5}
+h1{color:#38bdf8;margin-bottom:2px} .sub{color:#94a3b8;margin-top:0}
+table{border-collapse:collapse;min-width:340px} td{padding:6px 14px;border-bottom:1px solid #334155}
+.note{background:#1e293b;border-left:4px solid #fbbf24;padding:12px 16px;border-radius:6px;margin:18px 0}
+code{color:#f87171;word-break:break-all} ul{padding-left:18px} li{margin:4px 0}
+</style></head><body>
+<h1>NN Rescue Copy</h1>
+<p class="sub">Job: $(Encode-NNHtml $JobName) &middot; $(Format-NNBytes $Bytes) processed &middot; $([DateTime]::Now.ToString('yyyy-MM-dd HH:mm'))</p>
+<h2>Results</h2><table>$rows</table>
+$cloudHtml
+$probHtml
+<p class="sub">Nerdy Neighbor &middot; copy.nerdyneighbor.net</p>
+</body></html>
+"@
+    [IO.File]::WriteAllText($OutPath, $html, [Text.Encoding]::UTF8)
+    return $OutPath
+}
+#endregion
+
 #region Entry stub (replaced in Task 10)
 function Start-NNRescue {
     Write-Host 'NN Rescue Copy: GUI not implemented yet.' -ForegroundColor Yellow
