@@ -346,9 +346,11 @@ function Invoke-NNCopyJob {
 #region Verify
 function Get-NNFileHash {
     param([string]$Path)
-    $sha = [Security.Cryptography.SHA256]::Create()
-    $s = Open-NNSourceStream $Path
+    $sha = $null
+    $s = $null
     try {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        $s = Open-NNSourceStream $Path
         $buf = New-Object byte[] 1048576
         while (($n = $s.Read($buf, 0, $buf.Length)) -gt 0) {
             $null = $sha.TransformBlock($buf, 0, $n, $null, 0)
@@ -356,8 +358,8 @@ function Get-NNFileHash {
         $null = $sha.TransformFinalBlock($buf, 0, 0)
         return ([BitConverter]::ToString($sha.Hash) -replace '-', '')
     } finally {
-        $s.Dispose()
-        $sha.Dispose()
+        if ($s) { $s.Dispose() }
+        if ($sha) { $sha.Dispose() }
     }
 }
 
