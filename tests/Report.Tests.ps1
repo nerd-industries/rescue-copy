@@ -38,4 +38,22 @@ Describe 'New-NNHtmlReport' {
         $html | Should -Match 'Stored only in your cloud account'
         $html | Should -Match 'Total files processed'
     }
+    It 'shows a folder-by-folder table with counts and human sizes' {
+        $stats = @(
+            [pscustomobject]@{ Folder = 'Users\bob\Documents'; Files = 4213; Bytes = 51539607552 }
+            [pscustomobject]@{ Folder = 'Users\bob\Pictures'; Files = 902; Bytes = 5242880 }
+        )
+        $null = New-NNHtmlReport -Summary @{ 'OK' = 5115 } -Problems @() -JobName 'j3' -Bytes 51544850432 -OutPath $script:Out -FolderStats $stats
+        $html = Get-Content -Raw $script:Out
+        $html | Should -Match 'Users\\bob\\Documents'
+        $html | Should -Match '4213'
+        $html | Should -Match '48\.0 GB'
+        $html | Should -Match '5\.0 MB'
+    }
+    It 'auto-dates with no manual sign-off and no URL for the customer' {
+        $html = Get-Content -Raw $script:Out
+        $html | Should -Match ([DateTime]::Now.Year.ToString())
+        $html | Should -Not -Match 'TECHNICIAN'
+        $html | Should -Not -Match 'nerdyneighbor\.net'
+    }
 }

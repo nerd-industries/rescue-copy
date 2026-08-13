@@ -30,6 +30,13 @@ Describe 'Invoke-NNCopyJob' {
     It 'copies the tree preserving structure' {
         Test-Path (Join-NNParts @($script:JobRoot, 'Users', 'bob', 'Desktop', 'inner', 'two.txt')) | Should -BeTrue
     }
+    It 'reports per-folder stats for secured files' {
+        $done = $script:Msgs | Where-Object Type -eq 'done'
+        @($done.FolderStats).Count | Should -Be 1
+        $done.FolderStats[0].Folder | Should -Be (Join-NNParts @('Users','bob','Desktop'))
+        $done.FolderStats[0].Files | Should -Be 2
+        $done.FolderStats[0].Bytes | Should -BeGreaterThan 0
+    }
     It 'reports OK counts and collects verify pairs' {
         $done = $script:Msgs | Where-Object Type -eq 'done'
         $done.Summary['OK'] | Should -Be 2
