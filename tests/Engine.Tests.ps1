@@ -43,6 +43,6 @@ Describe 'Copy-NNFile' {
         $info = Get-Item $gone
         Remove-Item $gone
         $r = Copy-NNFile -Src $info -DestPath (Join-Path $script:Dir 'out2.bin') -Force $false -Buffer $script:Buf
-        $r | Should -Match '^OPEN-FAIL'
+        $r | Should -Be 'OPEN-FAIL(err=2)'
     }
 }

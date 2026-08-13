@@ -205,7 +205,8 @@ function Get-NNSourceHostname {
 #endregion
 
 #region Raw copy engine
-Add-Type -TypeDefinition @'
+if (-not ('RawFileNative' -as [type])) {
+    Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
@@ -214,7 +215,8 @@ public static class RawFileNative {
     public static extern SafeFileHandle CreateFileW(string name, uint access, uint share,
         IntPtr sec, uint disposition, uint flags, IntPtr template);
 }
-'@ -ErrorAction SilentlyContinue
+'@
+}
 
 # Decimal constants: PS5.1 parses large hex literals as negative int32
 $NNGenericRead    = [uint32]2147483648   # 0x80000000
@@ -250,10 +252,10 @@ function Copy-NNFile {
     $in = $null
     try { $in = Open-NNSourceStream $Src.FullName }
     catch {
-        $code = $_.Exception.Message
+        $code = 'err=' + ($_.Exception.HResult -band 0xFFFF)
         if ($_.Exception -is [ComponentModel.Win32Exception]) { $code = 'err=' + $_.Exception.NativeErrorCode }
-        if ($_.Exception.InnerException -is [ComponentModel.Win32Exception]) { $code = 'err=' + $_.Exception.InnerException.NativeErrorCode }
         if ($_.Exception -is [IO.FileNotFoundException] -or $_.Exception -is [IO.DirectoryNotFoundException]) { $code = 'err=2' }
+        if ($_.Exception.InnerException -is [IO.FileNotFoundException] -or $_.Exception.InnerException -is [IO.DirectoryNotFoundException]) { $code = 'err=2' }
         return "OPEN-FAIL($code)"
     }
     $out = $null
