@@ -276,6 +276,71 @@ function Copy-NNFile {
     } catch { }
     return 'OK'
 }
+
+function Invoke-NNCopyJob {
+    param($Targets, [string]$JobRoot, $Control, $Queue, [bool]$Force)
+
+    # Pass 1: enumerate work
+    $files = New-Object System.Collections.Generic.List[object]
+    $totalBytes = [long]0
+    foreach ($t in $Targets) {
+        $src = Get-Item -Force -LiteralPath $t.SourcePath -ErrorAction SilentlyContinue
+        if (-not $src) { continue }
+        if ($src.PSIsContainer) {
+            foreach ($f in @(Get-ChildItem -LiteralPath $src.FullName -Recurse -Force -File -ErrorAction SilentlyContinue)) {
+                $rel = $f.FullName.Substring($src.FullName.Length).TrimStart('\', '/')
+                $files.Add(@{ File = $f; Dest = (Join-Path (Join-Path $JobRoot $t.DestRel) $rel) })
+                $totalBytes += $f.Length
+            }
+        } else {
+            $files.Add(@{ File = $src; Dest = (Join-Path $JobRoot $t.DestRel) })
+            $totalBytes += $src.Length
+        }
+    }
+    $Queue.Enqueue([pscustomobject]@{ Type = 'plan'; Count = $files.Count; Bytes = $totalBytes })
+
+    $null = [IO.Directory]::CreateDirectory($JobRoot)
+    $csvPath = Join-Path $JobRoot '_RescueLog.csv'
+    $newCsv = -not (Test-Path -LiteralPath $csvPath)
+    $csv = New-Object IO.StreamWriter ($csvPath, $true, [Text.Encoding]::UTF8)
+    if ($newCsv) { $csv.WriteLine('Time,Result,Bytes,Source,Destination') }
+
+    $buffer   = New-Object byte[] 1048576
+    $summary  = @{}
+    $problems = New-Object System.Collections.Generic.List[string]
+    $pairs    = New-Object System.Collections.Generic.List[object]
+    $done = [long]0
+    $i = 0
+    $lastDir = ''
+    try {
+        foreach ($item in $files) {
+            while ($Control.Pause -and -not $Control.Cancel) { Start-Sleep -Milliseconds 200 }
+            if ($Control.Cancel) { break }
+
+            $destDir = Split-Path $item.Dest
+            if ($destDir -ne $lastDir) {
+                $mkDir = $destDir
+                if ($NNIsWindows) { $mkDir = ConvertTo-NNLongPath $mkDir }
+                $null = [IO.Directory]::CreateDirectory($mkDir)
+                $lastDir = $destDir
+            }
+
+            $r = Copy-NNFile -Src $item.File -DestPath $item.Dest -Force $Force -Buffer $buffer
+            if ($summary.ContainsKey($r)) { $summary[$r]++ } else { $summary[$r] = 1 }
+            if ($r -eq 'OK') { $pairs.Add(@{ Src = $item.File.FullName; Dst = $item.Dest }) }
+            if ($r -ne 'OK' -and $r -ne 'SKIP-EXISTS') { $problems.Add("$r  $($item.File.FullName)") }
+            $done += $item.File.Length
+            $i++
+            $csv.WriteLine(('{0:o},{1},{2},"{3}","{4}"' -f [DateTime]::UtcNow, $r, $item.File.Length,
+                $item.File.FullName.Replace('"', '""'), $item.Dest.Replace('"', '""')))
+            $Queue.Enqueue([pscustomobject]@{ Type = 'file'; Result = $r; Path = $item.File.FullName; BytesDone = $done; Index = $i })
+        }
+    } finally {
+        $csv.Dispose()
+    }
+    $Queue.Enqueue([pscustomobject]@{ Type = 'done'; Summary = $summary; Problems = [object[]]$problems; Pairs = [object[]]$pairs;
+                      Cancelled = [bool]$Control.Cancel; BytesDone = $done })
+}
 #endregion
 
 #region Entry stub (replaced in Task 10)
