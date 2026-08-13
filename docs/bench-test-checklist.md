@@ -48,6 +48,7 @@ ideally a second drive with a Windows install + OneDrive data as "customer".
 - [ ] Long path (>260 chars) file copies successfully
 - [ ] Long path (>260 chars) copies under Windows PowerShell 5.1 specifically (not just pwsh 7)
 - [ ] Disk-full run: fill destination, confirm copy halts with FATAL message and report still writes
+- [ ] Open _RescueLog.csv in Excel, re-run the job: copy completes, problems list shows LOG-NOTE, timestamped fallback log appears
 - [ ] Toggle AppData checkbox mid-scan: tree rebuilds without duplicate users
 
 Sign-off: __________  Date: __________
