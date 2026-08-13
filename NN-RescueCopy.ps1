@@ -169,6 +169,41 @@ function Get-NNFolderSize {
 }
 #endregion
 
+#region Hostname
+function ConvertFrom-NNRegQuery {
+    param([string[]]$Lines, [string]$ValueName)
+    foreach ($l in $Lines) {
+        if ($l -match ('^\s*' + [regex]::Escape($ValueName) + '\s+REG_\w+\s+(.+?)\s*$')) {
+            return $Matches[1]
+        }
+    }
+    return $null
+}
+
+function Get-NNSourceHostname {
+    param([string]$SourceRoot)
+    if (-not $NNIsWindows) { return $null }
+    $hive = Join-NNParts @($SourceRoot, 'Windows', 'System32', 'config', 'SYSTEM')
+    if (-not (Test-Path -LiteralPath $hive)) { return $null }
+    $mount = 'HKLM\NN-RESCUE-SYS'
+    & reg.exe load $mount $hive > $null 2>&1
+    if ($LASTEXITCODE -ne 0) { return $null }
+    try {
+        $sel = & reg.exe query "$mount\Select" /v Current 2>$null
+        $cur = ConvertFrom-NNRegQuery $sel 'Current'
+        if (-not $cur) { return $null }
+        $n = [Convert]::ToInt32($cur, 16)
+        $key = ('{0}\ControlSet{1:D3}\Control\ComputerName\ComputerName' -f $mount, $n)
+        $q = & reg.exe query $key /v ComputerName 2>$null
+        return (ConvertFrom-NNRegQuery $q 'ComputerName')
+    } catch {
+        return $null
+    } finally {
+        & reg.exe unload $mount > $null 2>&1
+    }
+}
+#endregion
+
 #region Entry stub (replaced in Task 10)
 function Start-NNRescue {
     Write-Host 'NN Rescue Copy: GUI not implemented yet.' -ForegroundColor Yellow
