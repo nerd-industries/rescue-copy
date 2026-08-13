@@ -39,6 +39,9 @@ ideally a second drive with a Windows install + OneDrive data as "customer".
 - [ ] `_RescueReport.html` renders with counts + problem list
 
 ## Resume & verify
+- [ ] Existing-backup dialog appears when the job folder already has data
+- [ ] Dialog "Keep both" switches to the suffixed name (e.g. "Tom Scott (2)") and updates the name field
+- [ ] Dialog "Start over" ticks Re-copy everything; "Go back" returns to the name step
 - [ ] Re-running the same job name skips everything (SKIP-EXISTS)
 - [ ] "Re-copy everything" forces a full recopy
 - [ ] Verify checkbox runs the SHA-256 pass and reports 0 mismatches
