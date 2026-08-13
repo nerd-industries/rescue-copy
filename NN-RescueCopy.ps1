@@ -299,12 +299,6 @@ function Invoke-NNCopyJob {
     }
     $Queue.Enqueue([pscustomobject]@{ Type = 'plan'; Count = $files.Count; Bytes = $totalBytes })
 
-    $null = [IO.Directory]::CreateDirectory($JobRoot)
-    $csvPath = Join-Path $JobRoot '_RescueLog.csv'
-    $newCsv = -not (Test-Path -LiteralPath $csvPath)
-    $csv = New-Object IO.StreamWriter ($csvPath, $true, [Text.Encoding]::UTF8)
-    if ($newCsv) { $csv.WriteLine('Time,Result,Bytes,Source,Destination') }
-
     $buffer   = New-Object byte[] 1048576
     $summary  = @{}
     $problems = New-Object System.Collections.Generic.List[string]
@@ -313,30 +307,40 @@ function Invoke-NNCopyJob {
     $i = 0
     $lastDir = ''
     try {
-        foreach ($item in $files) {
-            while ($Control.Pause -and -not $Control.Cancel) { Start-Sleep -Milliseconds 200 }
-            if ($Control.Cancel) { break }
+        $null = [IO.Directory]::CreateDirectory($JobRoot)
+        $csvPath = Join-Path $JobRoot '_RescueLog.csv'
+        $newCsv = -not (Test-Path -LiteralPath $csvPath)
+        $csv = New-Object IO.StreamWriter ($csvPath, $true, [Text.Encoding]::UTF8)
+        if ($newCsv) { $csv.WriteLine('Time,Result,Bytes,Source,Destination') }
 
-            $destDir = Split-Path $item.Dest
-            if ($destDir -ne $lastDir) {
-                $mkDir = $destDir
-                if ($NNIsWindows) { $mkDir = ConvertTo-NNLongPath $mkDir }
-                $null = [IO.Directory]::CreateDirectory($mkDir)
-                $lastDir = $destDir
+        try {
+            foreach ($item in $files) {
+                while ($Control.Pause -and -not $Control.Cancel) { Start-Sleep -Milliseconds 200 }
+                if ($Control.Cancel) { break }
+
+                $destDir = Split-Path $item.Dest
+                if ($destDir -ne $lastDir) {
+                    $mkDir = $destDir
+                    if ($NNIsWindows) { $mkDir = ConvertTo-NNLongPath $mkDir }
+                    $null = [IO.Directory]::CreateDirectory($mkDir)
+                    $lastDir = $destDir
+                }
+
+                $r = Copy-NNFile -Src $item.File -DestPath $item.Dest -Force $Force -Buffer $buffer
+                if ($summary.ContainsKey($r)) { $summary[$r]++ } else { $summary[$r] = 1 }
+                if ($r -eq 'OK') { $pairs.Add(@{ Src = $item.File.FullName; Dst = $item.Dest }) }
+                if ($r -ne 'OK' -and $r -ne 'SKIP-EXISTS') { $problems.Add("$r  $($item.File.FullName)") }
+                $done += $item.File.Length
+                $i++
+                $csv.WriteLine(('{0:o},{1},{2},"{3}","{4}"' -f [DateTime]::UtcNow, $r, $item.File.Length,
+                    $item.File.FullName.Replace('"', '""'), $item.Dest.Replace('"', '""')))
+                $Queue.Enqueue([pscustomobject]@{ Type = 'file'; Result = $r; Path = $item.File.FullName; BytesDone = $done; Index = $i })
             }
-
-            $r = Copy-NNFile -Src $item.File -DestPath $item.Dest -Force $Force -Buffer $buffer
-            if ($summary.ContainsKey($r)) { $summary[$r]++ } else { $summary[$r] = 1 }
-            if ($r -eq 'OK') { $pairs.Add(@{ Src = $item.File.FullName; Dst = $item.Dest }) }
-            if ($r -ne 'OK' -and $r -ne 'SKIP-EXISTS') { $problems.Add("$r  $($item.File.FullName)") }
-            $done += $item.File.Length
-            $i++
-            $csv.WriteLine(('{0:o},{1},{2},"{3}","{4}"' -f [DateTime]::UtcNow, $r, $item.File.Length,
-                $item.File.FullName.Replace('"', '""'), $item.Dest.Replace('"', '""')))
-            $Queue.Enqueue([pscustomobject]@{ Type = 'file'; Result = $r; Path = $item.File.FullName; BytesDone = $done; Index = $i })
+        } finally {
+            $csv.Dispose()
         }
-    } finally {
-        $csv.Dispose()
+    } catch {
+        $problems.Add('FATAL(' + $_.Exception.Message + ')')
     }
     $Queue.Enqueue([pscustomobject]@{ Type = 'done'; Summary = $summary; Problems = [object[]]$problems; Pairs = [object[]]$pairs;
                       Cancelled = [bool]$Control.Cancel; BytesDone = $done })
@@ -367,17 +371,21 @@ function Invoke-NNVerifyPass {
     param($Pairs, $Control, $Queue)
     $mismatch = New-Object System.Collections.Generic.List[string]
     $i = 0
-    foreach ($p in $Pairs) {
-        if ($Control.Cancel) { break }
-        try {
-            $a = Get-NNFileHash $p.Src
-            $b = Get-NNFileHash $p.Dst
-            if ($a -ne $b) { $mismatch.Add("HASH-MISMATCH  $($p.Src)") }
-        } catch {
-            $mismatch.Add("VERIFY-FAIL($($_.Exception.Message))  $($p.Src)")
+    try {
+        foreach ($p in $Pairs) {
+            if ($Control.Cancel) { break }
+            try {
+                $a = Get-NNFileHash $p.Src
+                $b = Get-NNFileHash $p.Dst
+                if ($a -ne $b) { $mismatch.Add("HASH-MISMATCH  $($p.Src)") }
+            } catch {
+                $mismatch.Add("VERIFY-FAIL($($_.Exception.Message))  $($p.Src)")
+            }
+            $i++
+            $Queue.Enqueue([pscustomobject]@{ Type = 'verify'; Index = $i; Total = @($Pairs).Count })
         }
-        $i++
-        $Queue.Enqueue([pscustomobject]@{ Type = 'verify'; Index = $i; Total = @($Pairs).Count })
+    } catch {
+        $mismatch.Add('VERIFY-FATAL(' + $_.Exception.Message + ')')
     }
     $Queue.Enqueue([pscustomobject]@{ Type = 'verifydone'; Mismatches = $mismatch })
     return $mismatch
@@ -760,7 +768,8 @@ function Read-NNQueue {
             Update-NNTotals
         }
         elseif ($m.Type -eq 'scandone') {
-            $c.UI.TxtScanStatus.Text = 'Scan complete.'
+            if ($m.Error) { $c.UI.TxtScanStatus.Text = 'Scan failed: ' + $m.Error }
+            else { $c.UI.TxtScanStatus.Text = 'Scan complete.' }
         }
         elseif ($m.Type -eq 'plan') {
             $c.PlanBytes = [long]$m.Bytes; $c.PlanCount = [int]$m.Count
@@ -964,12 +973,16 @@ function Start-NNRescueGui {
 
 function Invoke-NNScanJob {
     param([string]$SourceRoot, [bool]$IncludeAppData, $Queue)
-    $model = Build-NNSelectionModel $SourceRoot $IncludeAppData
-    foreach ($g in $model) {
-        foreach ($i in $g.Items) { $i.SizeBytes = Get-NNFolderSize $i.SourcePath }
-        $Queue.Enqueue(@{ Type = 'scangroup'; Group = $g })
+    try {
+        $model = Build-NNSelectionModel $SourceRoot $IncludeAppData
+        foreach ($g in $model) {
+            foreach ($i in $g.Items) { $i.SizeBytes = Get-NNFolderSize $i.SourcePath }
+            $Queue.Enqueue([pscustomobject]@{ Type = 'scangroup'; Group = $g })
+        }
+        $Queue.Enqueue([pscustomobject]@{ Type = 'scandone'; Error = $null })
+    } catch {
+        $Queue.Enqueue([pscustomobject]@{ Type = 'scandone'; Error = $_.Exception.Message })
     }
-    $Queue.Enqueue(@{ Type = 'scandone' })
 }
 #endregion
 

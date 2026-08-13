@@ -45,3 +45,20 @@ Describe 'Start-NNBackground' {
         Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
     }
 }
+
+Describe 'Invoke-NNCopyJob fatal errors' {
+    It 'still posts a done message with a FATAL problem when the job root cannot be created' {
+        $tmpFile = Join-Path ([IO.Path]::GetTempPath()) ("nnbg-file-" + [guid]::NewGuid().ToString('N'))
+        Set-Content -Path $tmpFile -Value 'not a directory'
+        $badRoot = Join-Path $tmpFile 'sub'
+        $q = New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'
+        $ctl = [hashtable]::Synchronized(@{ Cancel = $false; Pause = $false })
+        Invoke-NNCopyJob @() $badRoot $ctl $q $false
+        $m = $null; $msgs = @()
+        while ($q.TryDequeue([ref]$m)) { $msgs += $m }
+        $done = $msgs | Where-Object { $_.Type -eq 'done' }
+        $done | Should -Not -BeNullOrEmpty
+        ($done.Problems -join ';') | Should -Match 'FATAL\('
+        Remove-Item -Force $tmpFile -ErrorAction SilentlyContinue
+    }
+}
