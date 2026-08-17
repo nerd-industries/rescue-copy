@@ -7,6 +7,8 @@ ideally a second drive with a Windows install + OneDrive data as "customer".
 - [ ] `irm copy.nerdyneighbor.net | iex` from Windows PowerShell 5.1 opens the GUI
 - [ ] Same from PowerShell 7 (pwsh) opens the GUI
 - [ ] Window renders dark-themed, no binding errors in the console
+- [ ] On an 800x600 display: window fits the screen, bottom Back/Next bar visible
+      and clickable, steps 2 and 5 scroll if needed
 
 ## Step 1 — Drives
 - [ ] All ready volumes listed with letter, label, size, free, Windows/Users badges

@@ -703,7 +703,7 @@ function Get-NNSelectedBytes {
 $NNXaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="NN Rescue Copy" Height="720" Width="1100" MinHeight="640" MinWidth="980"
+        Title="NN Rescue Copy" Height="720" Width="1100" MinHeight="520" MinWidth="740"
         WindowStartupLocation="CenterScreen"
         Background="#0F172A" Foreground="#E2E8F0" FontFamily="Segoe UI" FontSize="13">
   <Window.Resources>
@@ -905,7 +905,7 @@ $NNXaml = @'
   </Window.Resources>
   <DockPanel>
     <!-- Step rail -->
-    <Border DockPanel.Dock="Left" Width="212" Background="#0B1220" Padding="0,24,0,0">
+    <Border DockPanel.Dock="Left" Width="188" Background="#0B1220" Padding="0,24,0,0">
       <StackPanel>
         <TextBlock Text="NERDY NEIGHBOR" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="26,0,0,2"/>
         <TextBlock Text="Rescue Copy" FontSize="21" FontWeight="Bold" Foreground="#38BDF8" Margin="26,0,0,30"/>
@@ -926,7 +926,7 @@ $NNXaml = @'
       </DockPanel>
     </Border>
     <!-- Content -->
-    <Grid Margin="26,22,26,16">
+    <Grid Margin="20,18,20,12">
       <!-- Step 1: Drives -->
       <Grid x:Name="PanelStep1">
         <Grid.RowDefinitions>
@@ -945,10 +945,10 @@ $NNXaml = @'
             <ListView x:Name="LvSource">
               <ListView.View><GridView>
                 <GridViewColumn Header="Drive" Width="70" DisplayMemberBinding="{Binding Drive}"/>
-                <GridViewColumn Header="Label" Width="190" DisplayMemberBinding="{Binding Label}"/>
-                <GridViewColumn Header="Size" Width="100" DisplayMemberBinding="{Binding Size}"/>
-                <GridViewColumn Header="Free" Width="100" DisplayMemberBinding="{Binding Free}"/>
-                <GridViewColumn Header="Contents" Width="230" DisplayMemberBinding="{Binding Contents}"/>
+                <GridViewColumn Header="Label" Width="150" DisplayMemberBinding="{Binding Label}"/>
+                <GridViewColumn Header="Size" Width="80" DisplayMemberBinding="{Binding Size}"/>
+                <GridViewColumn Header="Free" Width="80" DisplayMemberBinding="{Binding Free}"/>
+                <GridViewColumn Header="Contents" Width="170" DisplayMemberBinding="{Binding Contents}"/>
               </GridView></ListView.View>
             </ListView>
           </DockPanel>
@@ -964,17 +964,18 @@ $NNXaml = @'
             <ListView x:Name="LvDest">
               <ListView.View><GridView>
                 <GridViewColumn Header="Drive" Width="70" DisplayMemberBinding="{Binding Drive}"/>
-                <GridViewColumn Header="Label" Width="190" DisplayMemberBinding="{Binding Label}"/>
-                <GridViewColumn Header="Size" Width="100" DisplayMemberBinding="{Binding Size}"/>
-                <GridViewColumn Header="Free" Width="100" DisplayMemberBinding="{Binding Free}"/>
-                <GridViewColumn Header="Contents" Width="230" DisplayMemberBinding="{Binding Contents}"/>
+                <GridViewColumn Header="Label" Width="150" DisplayMemberBinding="{Binding Label}"/>
+                <GridViewColumn Header="Size" Width="80" DisplayMemberBinding="{Binding Size}"/>
+                <GridViewColumn Header="Free" Width="80" DisplayMemberBinding="{Binding Free}"/>
+                <GridViewColumn Header="Contents" Width="170" DisplayMemberBinding="{Binding Contents}"/>
               </GridView></ListView.View>
             </ListView>
           </DockPanel>
         </Border>
       </Grid>
       <!-- Step 2: Job name -->
-      <StackPanel x:Name="PanelStep2" Visibility="Collapsed" MaxWidth="620" VerticalAlignment="Center">
+      <ScrollViewer x:Name="PanelStep2" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel MaxWidth="620" VerticalAlignment="Center">
         <TextBlock Text="Name the job" FontSize="19" FontWeight="SemiBold"/>
         <TextBlock Text="The backup folder is named after the customer. Re-using a name resumes that job." Foreground="#94A3B8" Margin="0,3,0,16"/>
         <Border CornerRadius="12" Background="#1E293B" BorderBrush="#334155" BorderThickness="1" Padding="22,20">
@@ -990,6 +991,7 @@ $NNXaml = @'
           </StackPanel>
         </Border>
       </StackPanel>
+      </ScrollViewer>
       <!-- Step 3: Selection -->
       <Grid x:Name="PanelStep3" Visibility="Collapsed">
         <Grid.RowDefinitions>
@@ -1044,7 +1046,8 @@ $NNXaml = @'
         </StackPanel>
       </Grid>
       <!-- Step 5: Done -->
-      <StackPanel x:Name="PanelStep5" Visibility="Collapsed" MaxWidth="680" VerticalAlignment="Center">
+      <ScrollViewer x:Name="PanelStep5" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel MaxWidth="680" VerticalAlignment="Center">
         <TextBlock Text="Rescue complete" FontSize="24" FontWeight="Bold" Foreground="#4ADE80"/>
         <Border CornerRadius="12" Background="#1E293B" BorderBrush="#334155" BorderThickness="1" Padding="20,16" Margin="0,14,0,0">
           <StackPanel>
@@ -1058,6 +1061,7 @@ $NNXaml = @'
           <Button x:Name="BtnOpenReport" Content="Open report"/>
         </StackPanel>
       </StackPanel>
+      </ScrollViewer>
     </Grid>
   </DockPanel>
 </Window>
@@ -1388,6 +1392,10 @@ function Show-NNExistingDataDialog {
 
 function Start-NNRescueGui {
     $win = [Windows.Markup.XamlReader]::Parse($NNXaml)
+    # Fit small screens (e.g. 800x600 recovery monitors): never open larger than the work area
+    $wa = [System.Windows.SystemParameters]::WorkArea
+    if ($win.Width -gt ($wa.Width - 8)) { $win.Width = [math]::Max($win.MinWidth, $wa.Width - 8) }
+    if ($win.Height -gt ($wa.Height - 8)) { $win.Height = [math]::Max($win.MinHeight, $wa.Height - 8) }
     $ui = @{}
     foreach ($n in @('RailStep1','RailStep2','RailStep3','RailStep4','RailStep5',
                      'PanelStep1','PanelStep2','PanelStep3','PanelStep4','PanelStep5',
