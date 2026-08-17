@@ -128,7 +128,7 @@ function Get-NNUserProfileDirs {
     $users = Join-Path $SourceRoot 'Users'
     if (-not (Test-Path -LiteralPath $users)) { return @() }
     @(Get-ChildItem -LiteralPath $users -Directory -Force -ErrorAction SilentlyContinue |
-        Where-Object { $NNProfileExclude -notcontains $_.Name })
+        Where-Object { $NNProfileExclude -notcontains $_.Name -and $_.Name -notlike 'defaultuser*' })
 }
 
 function Get-NNProfileTargets {
@@ -677,7 +677,9 @@ function Build-NNSelectionModel {
     foreach ($pd in @(Get-NNUserProfileDirs $SourceRoot)) {
         $items = @(Get-NNProfileTargets $pd)
         if ($IncludeAppData) { $items += @(Get-NNAppDataTargets $pd) }
-        if ($items.Count -gt 0) { $groups += @{ Header = "User: $($pd.Name)"; Items = $items } }
+        # Empty groups stay visible: a corrupted-profile husk (e.g. Owner vs Owner.000)
+        # silently vanishing reads as a missing user to the tech.
+        $groups += @{ Header = "User: $($pd.Name)"; Items = $items }
     }
     $extras = @(Get-NNExtraTargets $SourceRoot)
     $public = @($extras | Where-Object { $_.Category -eq 'Public' })
@@ -1172,9 +1174,20 @@ function Add-NNTreeGroup {
     $head.Foreground = '#38BDF8'
     $node.Header = $head
     $childBoxes = New-Object System.Collections.Generic.List[object]
+    if (@($Group.Items).Count -eq 0) {
+        $head.IsEnabled = $false
+        $note = New-Object System.Windows.Controls.TextBlock
+        $note.Text = 'nothing recoverable in this profile'
+        $note.Foreground = '#64748B'
+        $note.FontStyle = 'Italic'
+        $note.Margin = '8,4'
+        $leafN = New-Object System.Windows.Controls.TreeViewItem
+        $leafN.Header = $note
+        $null = $node.Items.Add($leafN)
+    }
     foreach ($item in $Group.Items) {
         $cb = New-Object System.Windows.Controls.CheckBox
-        $sz = ''
+        $sz = '  (sizing...)'
         if ($null -ne $item.SizeBytes) { $sz = '  (' + (Format-NNBytes $item.SizeBytes) + ')' }
         # two-line content: label + size, full source path in small mono underneath
         $stack = New-Object System.Windows.Controls.StackPanel
@@ -1198,6 +1211,7 @@ function Add-NNTreeGroup {
         $leaf.Header = $cb
         $null = $node.Items.Add($leaf)
         $childBoxes.Add($cb)
+        $c.ItemBoxes[$item.SourcePath] = @{ Cb = $cb; Line1 = $line1; Item = $item }
     }
     $head.Tag = $childBoxes
     $allOn = $true
@@ -1212,6 +1226,7 @@ function Start-NNScan {
     $c = $script:NNCtx
     if ($c.ScanJob) { try { $c.ScanJob.PS.Stop(); $c.ScanJob.PS.Dispose() } catch { } }
     $c.UI.TreeSel.Items.Clear()
+    $c.ItemBoxes = @{}
     $c.Model = New-Object System.Collections.Generic.List[object]
     $c.UI.TxtScanStatus.Text = 'Scanning...'
     $c.ScanGen++
@@ -1226,6 +1241,16 @@ function Read-NNQueue {
             if ($m.Gen -eq $c.ScanGen) {
                 $c.Model.Add($m.Group)
                 Add-NNTreeGroup $m.Group
+                $c.UI.TxtScanStatus.Text = 'Sizing folders...'
+                Update-NNTotals
+            }
+        }
+        elseif ($m.Type -eq 'itemsize') {
+            if ($m.Gen -eq $c.ScanGen -and $c.ItemBoxes.ContainsKey($m.Path)) {
+                $e = $c.ItemBoxes[$m.Path]
+                $e.Item.SizeBytes = [long]$m.Size
+                $e.Line1.Text = $e.Item.Label + '  (' + (Format-NNBytes ([long]$m.Size)) + ')'
+                if ([long]$m.Size -eq 0 -and $e.Cb.IsChecked) { $e.Cb.IsChecked = $false }
                 Update-NNTotals
             }
         }
@@ -1412,7 +1437,7 @@ function Start-NNRescueGui {
         Win = $win; UI = $ui; Step = 1
         SourceRoot = $null; BackupRoot = $null; DestFreeBytes = [long]0
         JobRoot = $null; JobName = ''
-        Model = $null; ScanJob = $null; CopyJob = $null; VerifyJob = $null
+        Model = $null; ScanJob = $null; CopyJob = $null; VerifyJob = $null; ItemBoxes = @{}
         Control = [hashtable]::Synchronized(@{ Cancel = $false; Pause = $false })
         Queue = (New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]')
         Tally = @{}; Problems = (New-Object System.Collections.Generic.List[string])
@@ -1548,10 +1573,19 @@ function Start-NNRescueGui {
 function Invoke-NNScanJob {
     param([string]$SourceRoot, [bool]$IncludeAppData, $Queue, [int]$Gen)
     try {
+        # Two phases so the tree fills instantly: every group first (sizes pending),
+        # then per-item sizes stream in. Anything that sizes to zero is unticked.
         $model = Build-NNSelectionModel $SourceRoot $IncludeAppData
         foreach ($g in $model) {
-            foreach ($i in $g.Items) { $i.SizeBytes = Get-NNFolderSize $i.SourcePath }
             $Queue.Enqueue([pscustomobject]@{ Type = 'scangroup'; Group = $g; Gen = $Gen })
+        }
+        foreach ($g in $model) {
+            foreach ($i in $g.Items) {
+                $sz = [long](Get-NNFolderSize $i.SourcePath)
+                $i.SizeBytes = $sz
+                if ($sz -eq 0) { $i.Selected = $false }
+                $Queue.Enqueue([pscustomobject]@{ Type = 'itemsize'; Path = $i.SourcePath; Size = $sz; Gen = $Gen })
+            }
         }
         $Queue.Enqueue([pscustomobject]@{ Type = 'scandone'; Error = $null; Gen = $Gen })
     } catch {

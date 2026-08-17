@@ -7,6 +7,8 @@ BeforeAll {
         @('Users','bob','Desktop'),
         @('Users','bob','AppData','Local','Google','Chrome','User Data'),
         @('Users','Public','Documents'),
+        @('Users','husk','AppData','Roaming'),
+        @('Users','bob','EmptyStuff'),
         @('Windows'), @('Scans')
     )) { $null = New-Item -ItemType Directory -Force -Path (Join-NNParts (@($script:Root) + $p)) }
     Set-Content -Path (Join-NNParts @($script:Root,'Users','bob','Desktop','f.txt')) -Value 'data'
@@ -17,17 +19,25 @@ AfterAll { Remove-Item -Recurse -Force $script:Root -ErrorAction SilentlyContinu
 Describe 'Build-NNSelectionModel' {
     It 'groups per user, splits Public folders from drive extras' {
         $m = Build-NNSelectionModel $script:Root $false
-        @($m).Count | Should -Be 3
-        $m[0].Header | Should -Be 'User: bob'
-        ($m[0].Items | ForEach-Object Category) | Should -Not -Contain 'AppData'
-        $m[1].Header | Should -Be 'Public folders (shared by all users)'
-        ($m[1].Items | ForEach-Object Label) | Should -Contain 'Documents'
-        $m[2].Header | Should -Be 'Extras found on drive'
-        ($m[2].Items | ForEach-Object Label) | Should -Not -Contain 'Documents'
+        $headers = @($m | ForEach-Object Header)
+        $headers | Should -Contain 'User: bob'
+        $headers | Should -Contain 'Public folders (shared by all users)'
+        $headers | Should -Contain 'Extras found on drive'
+        $bob = $m | Where-Object Header -eq 'User: bob'
+        ($bob.Items | ForEach-Object Category) | Should -Not -Contain 'AppData'
+        $extras = $m | Where-Object Header -eq 'Extras found on drive'
+        ($extras.Items | ForEach-Object Label) | Should -Not -Contain 'Documents'
+    }
+    It 'keeps husk profiles visible as an empty group instead of dropping them' {
+        $m = Build-NNSelectionModel $script:Root $false
+        $husk = $m | Where-Object Header -eq 'User: husk'
+        $husk | Should -Not -BeNullOrEmpty
+        @($husk.Items).Count | Should -Be 0
     }
     It 'adds appdata targets when requested' {
         $m = Build-NNSelectionModel $script:Root $true
-        ($m[0].Items | Where-Object Category -eq 'AppData').Count | Should -Be 1
+        $bob = $m | Where-Object Header -eq 'User: bob'
+        ($bob.Items | Where-Object Category -eq 'AppData').Count | Should -Be 1
     }
 }
 
@@ -35,10 +45,31 @@ Describe 'Get-NNSelectedBytes' {
     It 'sums only selected, sized items' {
         $m = Build-NNSelectionModel $script:Root $false
         foreach ($g in $m) { foreach ($i in $g.Items) { $i.SizeBytes = 100 } }
-        foreach ($i in $m[2].Items) { $i.Selected = $false }
-        $total = Get-NNSelectedBytes $m
-        # bob/Desktop (selected) + Public Documents (selected by default); Scans extra deselected
-        $total | Should -Be 200
+        $extras = $m | Where-Object Header -eq 'Extras found on drive'
+        foreach ($i in $extras.Items) { $i.Selected = $false }
+        # selected: bob Desktop + bob EmptyStuff + Public Documents (Scans deselected)
+        Get-NNSelectedBytes $m | Should -Be 300
+    }
+}
+
+Describe 'Invoke-NNScanJob protocol' {
+    It 'posts all groups before any sizes, then per-item sizes, then scandone; empties get unticked' {
+        $q = New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'
+        Invoke-NNScanJob $script:Root $false $q 7
+        $msgs = @(); $x = $null
+        while ($q.TryDequeue([ref]$x)) { $msgs += $x }
+        $types = @($msgs | ForEach-Object Type)
+        # every scangroup precedes the first itemsize
+        ([array]::IndexOf($types, 'itemsize')) | Should -BeGreaterThan ([array]::LastIndexOf($types, 'scangroup'))
+        $types[-1] | Should -Be 'scandone'
+        ($msgs | Where-Object Type -eq 'itemsize' | ForEach-Object Gen | Sort-Object -Unique) | Should -Be 7
+        # the empty custom folder sized to 0 and got deselected
+        $groups = $msgs | Where-Object Type -eq 'scangroup'
+        $bob = ($groups | ForEach-Object Group | Where-Object Header -eq 'User: bob')
+        $empty = $bob.Items | Where-Object Label -eq 'EmptyStuff'
+        $empty.SizeBytes | Should -Be 0
+        $empty.Selected | Should -BeFalse
+        ($bob.Items | Where-Object Label -eq 'Desktop').Selected | Should -BeTrue
     }
 }
 

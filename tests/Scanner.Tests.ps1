@@ -12,7 +12,8 @@ BeforeAll {
         @('Users','Default','Desktop'), @('Users','Public','Documents'), @('Users','Public','Music'),
         @('Windows','System32'), @('Program Files','App'), @('ProgramData','Intuit','QB'),
         @('Scans'), @('QuickBooksBackups'),
-        @('Users','bob','a copy'), @('Users','bob','Saved Games')
+        @('Users','bob','a copy'), @('Users','bob','Saved Games'),
+        @('Users','defaultuser100000','Desktop')
     )) { $null = New-Item -ItemType Directory -Force -Path (Join-NNParts (@($script:Root) + $p)) }
     Set-Content -Path (Join-NNParts @($script:Root,'Users','bob','Desktop','a.txt')) -Value ('x' * 100)
     Set-Content -Path (Join-NNParts @($script:Root,'Users','bob','Desktop','b.txt')) -Value ('y' * 50)
